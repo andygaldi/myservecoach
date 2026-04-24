@@ -10,7 +10,7 @@ Legend: ✅ Complete · 🔄 In Progress · ⬜ Pending
 
 Basic SwiftUI project scaffold with folder structure matching the CLAUDE.md architecture.
 
-## Phase 1 — Video Capture UI ⬜
+## Phase 1 — Video Capture UI ✅
 
 Camera view (full-screen portrait), record/stop button, post-recording preview playback. AVFoundation `AVCaptureSession` pipeline writing to a temp file. Real-device only; Simulator shows a placeholder.
 

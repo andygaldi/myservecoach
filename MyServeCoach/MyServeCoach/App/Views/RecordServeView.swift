@@ -1,57 +1,118 @@
 import SwiftUI
-import SwiftData
 
 struct RecordServeView: View {
-    @Environment(\.modelContext) private var modelContext
-    @State private var viewModel = RecordServeViewModel()
+    var onClipSelected: (URL) -> Void = { _ in }
+
+    @Environment(\.openURL) private var openURL
+    @State private var cameraViewModel = CameraViewModel()
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Spacer()
+        #if targetEnvironment(simulator)
+        SimulatorPlaceholderView()
+        #else
+        ZStack {
+            CameraPreviewView(session: cameraViewModel.session)
+                .ignoresSafeArea()
 
-                // Camera preview placeholder — replaced with AVCaptureVideoPreviewLayer in Video Capture MVP
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.secondary.opacity(0.2))
-                    .overlay(Text("Camera Preview").foregroundStyle(.secondary))
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(9/16, contentMode: .fit)
-
-                if viewModel.isProcessing {
-                    ProgressView("Analyzing serve…")
-                } else {
-                    Button(action: toggleRecording) {
-                        Label(
-                            viewModel.isRecording ? "Stop" : "Record Serve",
-                            systemImage: viewModel.isRecording ? "stop.circle.fill" : "video.circle.fill"
-                        )
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(viewModel.isRecording ? Color.red : Color.accentColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: { cameraViewModel.toggleCamera() }) {
+                        Image(systemName: "camera.rotate")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.ultraThinMaterial, in: Circle())
                     }
-                    .padding(.horizontal)
+                    .disabled(cameraViewModel.isRecording)
+                }
+                .padding()
+
+                if cameraViewModel.permissionDenied {
+                    permissionDeniedBanner
                 }
 
-                if let error = viewModel.recordingError {
+                Spacer()
+
+                recordingControls
+            }
+        }
+        .task {
+            await cameraViewModel.startSession()
+        }
+        .onDisappear {
+            cameraViewModel.stopSession()
+        }
+        .sheet(item: Binding<PreviewItem?>(
+            get: { cameraViewModel.previewItem },
+            set: { newItem in
+                if newItem == nil, let existing = cameraViewModel.previewItem {
+                    cameraViewModel.retake(url: existing.url)
+                }
+            }
+        )) { item in
+            ClipPreviewView(
+                url: item.url,
+                onUseClip: {
+                    cameraViewModel.useClip()
+                    onClipSelected(item.url)
+                },
+                onRetake: {
+                    cameraViewModel.retake(url: item.url)
+                }
+            )
+        }
+        #endif
+    }
+
+    private var permissionDeniedBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "camera.fill")
+            Text("Camera access denied.")
+                .font(.subheadline)
+            Spacer()
+            Button("Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    openURL(url)
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(.white)
+        .padding()
+        .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private var recordingControls: some View {
+        switch cameraViewModel.recordingState {
+        case .idle, .recording:
+            VStack(spacing: 8) {
+                Button(action: { cameraViewModel.toggleRecording() }) {
+                    Label(
+                        cameraViewModel.isRecording ? "Stop" : "Record Serve",
+                        systemImage: cameraViewModel.isRecording ? "stop.circle.fill" : "video.circle.fill"
+                    )
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(cameraViewModel.isRecording ? Color.red : Color.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.horizontal)
+
+                if let error = cameraViewModel.recordingError {
                     Text(error)
                         .foregroundStyle(.red)
                         .font(.caption)
                 }
-
-                Spacer()
             }
-            .navigationTitle("Record Serve")
-        }
-    }
+            .padding(.bottom)
 
-    private func toggleRecording() {
-        if viewModel.isRecording {
-            viewModel.stopRecording(context: modelContext)
-        } else {
-            viewModel.startRecording()
+        case .previewing:
+            EmptyView()
         }
     }
 }
