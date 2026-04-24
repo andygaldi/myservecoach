@@ -20,7 +20,7 @@ Sample frames from the recorded video at a fixed interval. Run `VNDetectHumanBod
 
 ## Phase 3 — Backend Scaffold ⬜
 
-FastAPI project with a `POST /analyze` endpoint. Accepts a single serve's keypoint JSON, returns a hardcoded list of coaching cues. This single-serve contract is shared by both workflows — Assessment loops one call per segmented serve; Set Goal calls it once per detected serve. Confirms the iOS ↔ backend contract before any real logic is written.
+FastAPI project at `backend/` in the same repo as the iOS app. Implements a `POST /analyze` endpoint that accepts a single serve's keypoint JSON and returns a hardcoded list of coaching cues. This single-serve contract is shared by both workflows — Assessment loops one call per segmented serve; Set Goal calls it once per detected serve. Confirms the iOS ↔ backend contract before any real logic is written.
 
 ## Phase 4 — Coaching Rule Engine ⬜
 

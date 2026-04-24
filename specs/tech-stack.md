@@ -33,6 +33,10 @@
 | Backend unit tests | pytest |
 | Manual | Real device; serve recording on court |
 
+## Repository Structure
+
+iOS app and FastAPI backend live in the same repository (monorepo). Backend code goes in `backend/`; iOS app code stays at the repo root under `App/`. This keeps the tight iOS ↔ backend contract (keypoint JSON schema, coaching cues format) in a single commit history and eliminates cross-repo coordination overhead for a solo project. If the backend needs to be extracted later (e.g., cloud hosting with independent deploys, separate team), `git filter-repo` can do that without losing history.
+
 ## Key Architectural Decisions
 
 - **On-device pose extraction and serve segmentation**: Vision runs on the phone for both pose estimation and serve boundary detection (via keypoint velocity analysis). Segmentation runs on a saved video file in Assessment and on the live camera feed in Set Goal. Only filtered keypoint JSON is sent to the backend. Video never leaves the device; Set Goal session video is discarded after the session ends.
