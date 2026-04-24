@@ -20,6 +20,10 @@ final class CameraViewModel {
         if case .recording = recordingState { return true }
         return false
     }
+    var previewURL: URL? {
+        guard case .previewing(let url) = recordingState else { return nil }
+        return url
+    }
 
     init(cameraService: CameraService = CameraService()) {
         self.cameraService = cameraService
@@ -76,6 +80,15 @@ final class CameraViewModel {
                 }
             }
         }
+    }
+
+    func useClip() {
+        recordingState = .idle
+    }
+
+    func retake(url: URL) {
+        try? FileManager.default.removeItem(at: url)
+        recordingState = .idle
     }
 
     private func tempMovieURL() -> URL {

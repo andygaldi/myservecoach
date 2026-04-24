@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct RecordServeView: View {
+    var onClipSelected: (URL) -> Void = { _ in }
+
     @State private var cameraViewModel = CameraViewModel()
 
     var body: some View {
@@ -33,6 +35,27 @@ struct RecordServeView: View {
         .onDisappear {
             cameraViewModel.stopSession()
         }
+        .sheet(isPresented: Binding(
+            get: { cameraViewModel.previewURL != nil },
+            set: { isShowing in
+                if !isShowing, let url = cameraViewModel.previewURL {
+                    cameraViewModel.retake(url: url)
+                }
+            }
+        )) {
+            if let url = cameraViewModel.previewURL {
+                ClipPreviewView(
+                    url: url,
+                    onUseClip: {
+                        cameraViewModel.useClip()
+                        onClipSelected(url)
+                    },
+                    onRetake: {
+                        cameraViewModel.retake(url: url)
+                    }
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -63,7 +86,7 @@ struct RecordServeView: View {
             .padding(.bottom)
 
         case .previewing:
-            EmptyView() // replaced by VideoPlayer sheet in Group 3
+            EmptyView()
         }
     }
 }
