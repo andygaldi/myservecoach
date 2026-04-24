@@ -55,14 +55,8 @@ Print Vision results to the console early on for pose debugging.
 
 PRs merge into `develop` via squash & merge. Stable releases are tagged (`v0.x.x`) on `main`.
 
-Commit messages reference the Linear issue ID where applicable: `[MSC-XXXX] description`.
+Commit messages reference the Linear issue ID where applicable: `[MYS-XXXX] description`.
 
 ## Issue Tracking
 
-Issues are managed in **Linear**. Issue IDs follow the pattern `MSC-XXXX`. The project roadmap and epics (video capture MVP, pose extraction, backend serve analysis, results UI) are defined in `docs/linear-project.csv`.
-
-## Claude Code Usage Notes
-
-Well-suited for: generating SwiftUI components, AVFoundation pipelines, Vision pose-analysis functions, Swift refactoring, test scaffolding, and PR descriptions.
-
-Not suitable for: code signing/provisioning, simulator/device debugging, real-time UI previews, or Xcode-specific configuration errors — handle those directly in Xcode.
+Issues are managed in **Linear**. Issue IDs follow the pattern `MYS-XXXX`. The project roadmap and epics (video capture MVP, pose extraction, backend serve analysis, results UI) need to be defined.
