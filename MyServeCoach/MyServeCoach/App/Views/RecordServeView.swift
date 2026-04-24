@@ -6,6 +6,9 @@ struct RecordServeView: View {
     @State private var cameraViewModel = CameraViewModel()
 
     var body: some View {
+        #if targetEnvironment(simulator)
+        SimulatorPlaceholderView()
+        #else
         ZStack {
             CameraPreviewView(session: cameraViewModel.session)
                 .ignoresSafeArea()
@@ -56,6 +59,7 @@ struct RecordServeView: View {
                 )
             }
         }
+        #endif
     }
 
     @ViewBuilder
