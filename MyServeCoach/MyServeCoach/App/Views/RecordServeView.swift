@@ -3,6 +3,7 @@ import SwiftUI
 struct RecordServeView: View {
     var onClipSelected: (URL) -> Void = { _ in }
 
+    @Environment(\.openURL) private var openURL
     @State private var cameraViewModel = CameraViewModel()
 
     var body: some View {
@@ -26,6 +27,10 @@ struct RecordServeView: View {
                     .disabled(cameraViewModel.isRecording)
                 }
                 .padding()
+
+                if cameraViewModel.permissionDenied {
+                    permissionDeniedBanner
+                }
 
                 Spacer()
 
@@ -60,6 +65,25 @@ struct RecordServeView: View {
             }
         }
         #endif
+    }
+
+    private var permissionDeniedBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "camera.fill")
+            Text("Camera access denied.")
+                .font(.subheadline)
+            Spacer()
+            Button("Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    openURL(url)
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(.white)
+        .padding()
+        .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
     }
 
     @ViewBuilder

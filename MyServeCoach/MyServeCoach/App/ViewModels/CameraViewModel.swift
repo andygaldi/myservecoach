@@ -1,7 +1,7 @@
 import AVFoundation
 import Observation
 
-enum RecordingState {
+enum RecordingState: Equatable {
     case idle
     case recording
     case previewing(URL)
@@ -12,8 +12,25 @@ final class CameraViewModel {
     var cameraPosition: AVCaptureDevice.Position = .back
     var recordingState: RecordingState = .idle
     var recordingError: String?
+    var permissionDenied: Bool = false
 
-    private let cameraService: CameraService
+    // Injectable for testing; defaults to real AVFoundation check.
+    @ObservationIgnored
+    var permissionChecker: () async -> Bool = {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        switch status {
+        case .authorized:
+            return true
+        case .denied, .restricted:
+            return false
+        case .notDetermined:
+            return await AVCaptureDevice.requestAccess(for: .video)
+        @unknown default:
+            return false
+        }
+    }
+
+    private let cameraService: any CameraServiceProtocol
 
     var session: AVCaptureSession { cameraService.session }
     var isRecording: Bool {
@@ -25,18 +42,22 @@ final class CameraViewModel {
         return url
     }
 
-    init(cameraService: CameraService = CameraService()) {
+    init(cameraService: any CameraServiceProtocol = CameraService()) {
         self.cameraService = cameraService
     }
 
     func startSession() async {
-        let authorized = await AVCaptureDevice.requestAccess(for: .video)
-        guard authorized else { return }
+        let authorized = await permissionChecker()
+        guard authorized else {
+            permissionDenied = true
+            return
+        }
         do {
             try cameraService.configure(position: cameraPosition)
             cameraService.startSession()
         } catch {
-            // Permission granted but device unavailable; Group 5 will surface this to UI
+            // Device unavailable; Group 5 UI surfaces permissionDenied only — hardware
+            // errors will be visible via the blank preview.
         }
     }
 
@@ -64,12 +85,21 @@ final class CameraViewModel {
         }
     }
 
+    func useClip() {
+        recordingState = .idle
+    }
+
+    func retake(url: URL) {
+        try? FileManager.default.removeItem(at: url)
+        recordingState = .idle
+    }
+
     private func startRecording() {
         recordingError = nil
         let url = tempMovieURL()
         recordingState = .recording
         cameraService.startRecording(to: url) { [weak self] result in
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 switch result {
                 case .success(let outputURL):
@@ -80,15 +110,6 @@ final class CameraViewModel {
                 }
             }
         }
-    }
-
-    func useClip() {
-        recordingState = .idle
-    }
-
-    func retake(url: URL) {
-        try? FileManager.default.removeItem(at: url)
-        recordingState = .idle
     }
 
     private func tempMovieURL() -> URL {

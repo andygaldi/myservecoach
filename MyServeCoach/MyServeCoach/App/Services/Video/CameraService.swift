@@ -1,6 +1,21 @@
 import AVFoundation
 
-final class CameraService: NSObject {
+// MARK: - Protocol
+
+protocol CameraServiceProtocol: AnyObject {
+    var session: AVCaptureSession { get }
+    var isRecording: Bool { get }
+    func configure(position: AVCaptureDevice.Position) throws
+    func startSession()
+    func stopSession()
+    func toggleCamera(currentPosition: AVCaptureDevice.Position) throws -> AVCaptureDevice.Position
+    func startRecording(to url: URL, completion: @escaping (Result<URL, Error>) -> Void)
+    func stopRecording()
+}
+
+// MARK: - Live Implementation
+
+final class CameraService: NSObject, CameraServiceProtocol {
     let session = AVCaptureSession()
     private var currentInput: AVCaptureDeviceInput?
     private let movieOutput = AVCaptureMovieFileOutput()
