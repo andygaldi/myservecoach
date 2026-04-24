@@ -43,26 +43,24 @@ struct RecordServeView: View {
         .onDisappear {
             cameraViewModel.stopSession()
         }
-        .sheet(isPresented: Binding(
-            get: { cameraViewModel.previewURL != nil },
-            set: { isShowing in
-                if !isShowing, let url = cameraViewModel.previewURL {
-                    cameraViewModel.retake(url: url)
+        .sheet(item: Binding<PreviewItem?>(
+            get: { cameraViewModel.previewItem },
+            set: { newItem in
+                if newItem == nil, let existing = cameraViewModel.previewItem {
+                    cameraViewModel.retake(url: existing.url)
                 }
             }
-        )) {
-            if let url = cameraViewModel.previewURL {
-                ClipPreviewView(
-                    url: url,
-                    onUseClip: {
-                        cameraViewModel.useClip()
-                        onClipSelected(url)
-                    },
-                    onRetake: {
-                        cameraViewModel.retake(url: url)
-                    }
-                )
-            }
+        )) { item in
+            ClipPreviewView(
+                url: item.url,
+                onUseClip: {
+                    cameraViewModel.useClip()
+                    onClipSelected(item.url)
+                },
+                onRetake: {
+                    cameraViewModel.retake(url: item.url)
+                }
+            )
         }
         #endif
     }

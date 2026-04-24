@@ -4,7 +4,6 @@ import AVFoundation
 
 protocol CameraServiceProtocol: AnyObject {
     var session: AVCaptureSession { get }
-    var isRecording: Bool { get }
     func configure(position: AVCaptureDevice.Position) throws
     func startSession()
     func stopSession()
@@ -17,24 +16,84 @@ protocol CameraServiceProtocol: AnyObject {
 
 final class CameraService: NSObject, CameraServiceProtocol {
     let session = AVCaptureSession()
+    // All AVFoundation mutations and mutable state must run on sessionQueue.
+    private let sessionQueue = DispatchQueue(label: "com.myservecoach.CameraService.session")
     private var currentInput: AVCaptureDeviceInput?
     private let movieOutput = AVCaptureMovieFileOutput()
     private var recordingCompletion: ((Result<URL, Error>) -> Void)?
-    var isRecording = false
+    private var isRecording = false
 
     func configure(position: AVCaptureDevice.Position = .back) throws {
+        var caught: Error?
+        sessionQueue.sync {
+            do {
+                try _configure(position: position)
+                _updateMirroring(for: position)
+            } catch {
+                caught = error
+            }
+        }
+        if let error = caught { throw error }
+    }
+
+    func startSession() {
+        sessionQueue.async { [session] in
+            guard !session.isRunning else { return }
+            session.startRunning()
+        }
+    }
+
+    func stopSession() {
+        sessionQueue.async { [session] in
+            guard session.isRunning else { return }
+            session.stopRunning()
+        }
+    }
+
+    func toggleCamera(currentPosition: AVCaptureDevice.Position) throws -> AVCaptureDevice.Position {
+        var newPosition = currentPosition
+        var caught: Error?
+        sessionQueue.sync {
+            do {
+                newPosition = try _toggleCamera(currentPosition: currentPosition)
+            } catch {
+                caught = error
+            }
+        }
+        if let error = caught { throw error }
+        return newPosition
+    }
+
+    func startRecording(to url: URL, completion: @escaping (Result<URL, Error>) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            isRecording = true
+            recordingCompletion = completion
+            movieOutput.startRecording(to: url, recordingDelegate: self)
+        }
+    }
+
+    func stopRecording() {
+        sessionQueue.async { [movieOutput] in
+            movieOutput.stopRecording()
+        }
+    }
+
+    // MARK: - Private (session-queue only)
+
+    private func _configure(position: AVCaptureDevice.Position) throws {
         session.beginConfiguration()
+        defer { session.commitConfiguration() }
         session.sessionPreset = .high
 
-        if let existing = currentInput {
-            session.removeInput(existing)
-        }
+        let previous = currentInput
+        currentInput = nil
+        if let previous { session.removeInput(previous) }
 
-        let device = try captureDevice(for: position)
+        let device = try _captureDevice(for: position)
         let input = try AVCaptureDeviceInput(device: device)
 
         guard session.canAddInput(input) else {
-            session.commitConfiguration()
             throw CameraServiceError.cannotAddInput
         }
 
@@ -44,37 +103,20 @@ final class CameraService: NSObject, CameraServiceProtocol {
         if !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) {
             session.addOutput(movieOutput)
         }
-
-        session.commitConfiguration()
-        updateMirroring(for: position)
     }
 
-    func startSession() {
-        guard !session.isRunning else { return }
-        DispatchQueue.global(qos: .userInitiated).async { [session] in
-            session.startRunning()
-        }
-    }
-
-    func stopSession() {
-        guard session.isRunning else { return }
-        DispatchQueue.global(qos: .userInitiated).async { [session] in
-            session.stopRunning()
-        }
-    }
-
-    func toggleCamera(currentPosition: AVCaptureDevice.Position) throws -> AVCaptureDevice.Position {
+    private func _toggleCamera(currentPosition: AVCaptureDevice.Position) throws -> AVCaptureDevice.Position {
         guard !isRecording else { return currentPosition }
         let newPosition: AVCaptureDevice.Position = currentPosition == .back ? .front : .back
 
-        let device = try captureDevice(for: newPosition)
+        let device = try _captureDevice(for: newPosition)
         let newInput = try AVCaptureDeviceInput(device: device)
 
         session.beginConfiguration()
 
-        if let existing = currentInput {
-            session.removeInput(existing)
-        }
+        let previous = currentInput
+        currentInput = nil
+        if let previous { session.removeInput(previous) }
 
         guard session.canAddInput(newInput) else {
             session.commitConfiguration()
@@ -85,34 +127,26 @@ final class CameraService: NSObject, CameraServiceProtocol {
         currentInput = newInput
         session.commitConfiguration()
 
-        updateMirroring(for: newPosition)
+        _updateMirroring(for: newPosition)
         return newPosition
     }
 
-    func startRecording(to url: URL, completion: @escaping (Result<URL, Error>) -> Void) {
-        recordingCompletion = completion
-        movieOutput.startRecording(to: url, recordingDelegate: self)
-        isRecording = true
-    }
-
-    func stopRecording() {
-        movieOutput.stopRecording()
-    }
-
-    private func captureDevice(for position: AVCaptureDevice.Position) throws -> AVCaptureDevice {
+    private func _captureDevice(for position: AVCaptureDevice.Position) throws -> AVCaptureDevice {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
             throw CameraServiceError.deviceUnavailable
         }
         return device
     }
 
-    private func updateMirroring(for position: AVCaptureDevice.Position) {
+    private func _updateMirroring(for position: AVCaptureDevice.Position) {
         for connection in session.connections where connection.isVideoMirroringSupported {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = (position == .front)
         }
     }
 }
+
+// MARK: - AVCaptureFileOutputRecordingDelegate
 
 extension CameraService: AVCaptureFileOutputRecordingDelegate {
     func fileOutput(
@@ -121,15 +155,16 @@ extension CameraService: AVCaptureFileOutputRecordingDelegate {
         from connections: [AVCaptureConnection],
         error: Error?
     ) {
-        isRecording = false
-        let result: Result<URL, Error>
-        if let error {
-            result = .failure(error)
-        } else {
-            result = .success(outputFileURL)
+        // AVFoundation calls this on an arbitrary queue; bounce to sessionQueue
+        // before touching any mutable state.
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            isRecording = false
+            let completion = recordingCompletion
+            recordingCompletion = nil
+            let result: Result<URL, Error> = error.map { .failure($0) } ?? .success(outputFileURL)
+            completion?(result)
         }
-        recordingCompletion?(result)
-        recordingCompletion = nil
     }
 }
 

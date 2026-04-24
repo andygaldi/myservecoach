@@ -7,28 +7,21 @@ enum RecordingState: Equatable {
     case previewing(URL)
 }
 
+struct PreviewItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 @Observable
 final class CameraViewModel {
     var cameraPosition: AVCaptureDevice.Position = .back
     var recordingState: RecordingState = .idle
     var recordingError: String?
     var permissionDenied: Bool = false
+    private(set) var previewItem: PreviewItem?
 
-    // Injectable for testing; defaults to real AVFoundation check.
     @ObservationIgnored
-    var permissionChecker: () async -> Bool = {
-        let status = AVCaptureDevice.authorizationStatus(for: .video)
-        switch status {
-        case .authorized:
-            return true
-        case .denied, .restricted:
-            return false
-        case .notDetermined:
-            return await AVCaptureDevice.requestAccess(for: .video)
-        @unknown default:
-            return false
-        }
-    }
+    private let permissionChecker: () async -> Bool
 
     private let cameraService: any CameraServiceProtocol
 
@@ -37,13 +30,13 @@ final class CameraViewModel {
         if case .recording = recordingState { return true }
         return false
     }
-    var previewURL: URL? {
-        guard case .previewing(let url) = recordingState else { return nil }
-        return url
-    }
 
-    init(cameraService: any CameraServiceProtocol = CameraService()) {
+    init(
+        cameraService: any CameraServiceProtocol = CameraService(),
+        permissionChecker: @escaping () async -> Bool = CameraViewModel.defaultPermissionChecker
+    ) {
         self.cameraService = cameraService
+        self.permissionChecker = permissionChecker
     }
 
     func startSession() async {
@@ -56,7 +49,7 @@ final class CameraViewModel {
             try cameraService.configure(position: cameraPosition)
             cameraService.startSession()
         } catch {
-            // Device unavailable; Group 5 UI surfaces permissionDenied only — hardware
+            // Device unavailable; UI surfaces permissionDenied only — hardware
             // errors will be visible via the blank preview.
         }
     }
@@ -86,10 +79,12 @@ final class CameraViewModel {
     }
 
     func useClip() {
+        previewItem = nil
         recordingState = .idle
     }
 
     func retake(url: URL) {
+        previewItem = nil
         try? FileManager.default.removeItem(at: url)
         recordingState = .idle
     }
@@ -103,6 +98,7 @@ final class CameraViewModel {
                 guard let self else { return }
                 switch result {
                 case .success(let outputURL):
+                    self.previewItem = PreviewItem(url: outputURL)
                     self.recordingState = .previewing(outputURL)
                 case .failure(let error):
                     self.recordingError = error.localizedDescription
@@ -116,5 +112,19 @@ final class CameraViewModel {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mov")
+    }
+
+    private static let defaultPermissionChecker: () async -> Bool = {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        switch status {
+        case .authorized:
+            return true
+        case .denied, .restricted:
+            return false
+        case .notDetermined:
+            return await AVCaptureDevice.requestAccess(for: .video)
+        @unknown default:
+            return false
+        }
     }
 }

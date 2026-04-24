@@ -25,6 +25,21 @@ struct CameraViewModelTests {
         await Task.yield()
 
         #expect(vm.recordingState == .previewing(url))
+        #expect(vm.previewItem?.url == url)
+    }
+
+    @Test("recording → idle on recording failure")
+    func recordingFailurePath() async {
+        let mock = MockCameraService()
+        let vm = CameraViewModel(cameraService: mock)
+        vm.toggleRecording()
+
+        mock.triggerCompletion(result: .failure(MockError.failed))
+        await Task.yield()
+
+        #expect(vm.recordingState == .idle)
+        #expect(vm.previewItem == nil)
+        #expect(vm.recordingError != nil)
     }
 
     @Test("previewing → idle on retake()")
@@ -39,14 +54,51 @@ struct CameraViewModelTests {
 
         vm.retake(url: url)
         #expect(vm.recordingState == .idle)
+        #expect(vm.previewItem == nil)
+    }
+
+    @Test("previewing → idle on useClip()")
+    func previewingToIdleOnUseClip() async {
+        let mock = MockCameraService()
+        let vm = CameraViewModel(cameraService: mock)
+        vm.toggleRecording()
+
+        let url = URL(fileURLWithPath: "/tmp/test.mov")
+        mock.triggerCompletion(result: .success(url))
+        await Task.yield()
+
+        vm.useClip()
+        #expect(vm.recordingState == .idle)
+        #expect(vm.previewItem == nil)
+    }
+
+    @Test("toggleRecording() is no-op when state == .previewing")
+    func toggleRecordingNoOpWhilePreviewing() async {
+        let mock = MockCameraService()
+        let vm = CameraViewModel(cameraService: mock)
+        vm.toggleRecording()
+
+        let url = URL(fileURLWithPath: "/tmp/test.mov")
+        mock.triggerCompletion(result: .success(url))
+        await Task.yield()
+
+        #expect(vm.recordingState == .previewing(url))
+        vm.toggleRecording()
+        #expect(vm.recordingState == .previewing(url))
     }
 
     @Test("permissionDenied set correctly from .denied status")
     func permissionDeniedFlag() async {
-        let vm = CameraViewModel(cameraService: MockCameraService())
-        vm.permissionChecker = { false }
+        let vm = CameraViewModel(cameraService: MockCameraService(), permissionChecker: { false })
         await vm.startSession()
         #expect(vm.permissionDenied == true)
+    }
+
+    @Test("permissionDenied stays false on authorized status")
+    func permissionGrantedFlag() async {
+        let vm = CameraViewModel(cameraService: MockCameraService(), permissionChecker: { true })
+        await vm.startSession()
+        #expect(vm.permissionDenied == false)
     }
 
     @Test("cameraPosition toggles .back → .front → .back")
@@ -69,11 +121,16 @@ struct CameraViewModelTests {
     }
 }
 
+// MARK: - Helpers
+
+private enum MockError: Error {
+    case failed
+}
+
 // MARK: - Mock
 
 private final class MockCameraService: CameraServiceProtocol {
     let session = AVCaptureSession()
-    var isRecording = false
     private var recordingCompletion: ((Result<URL, Error>) -> Void)?
 
     func configure(position: AVCaptureDevice.Position) throws {}
@@ -85,17 +142,13 @@ private final class MockCameraService: CameraServiceProtocol {
     }
 
     func startRecording(to url: URL, completion: @escaping (Result<URL, Error>) -> Void) {
-        isRecording = true
         recordingCompletion = completion
     }
 
-    func stopRecording() {
-        isRecording = false
-    }
+    func stopRecording() {}
 
     func triggerCompletion(result: Result<URL, Error>) {
         recordingCompletion?(result)
         recordingCompletion = nil
-        isRecording = false
     }
 }
