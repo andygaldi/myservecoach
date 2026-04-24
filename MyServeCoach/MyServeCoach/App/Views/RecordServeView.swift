@@ -1,9 +1,6 @@
 import SwiftUI
-import SwiftData
 
 struct RecordServeView: View {
-    @Environment(\.modelContext) private var modelContext
-    @State private var viewModel = RecordServeViewModel()
     @State private var cameraViewModel = CameraViewModel()
 
     var body: some View {
@@ -27,33 +24,7 @@ struct RecordServeView: View {
 
                 Spacer()
 
-                if viewModel.isProcessing {
-                    ProgressView("Analyzing serve…")
-                        .foregroundStyle(.white)
-                        .padding(.bottom)
-                } else {
-                    Button(action: toggleRecording) {
-                        Label(
-                            viewModel.isRecording ? "Stop" : "Record Serve",
-                            systemImage: viewModel.isRecording ? "stop.circle.fill" : "video.circle.fill"
-                        )
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(viewModel.isRecording ? Color.red : Color.accentColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom)
-                }
-
-                if let error = viewModel.recordingError {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .font(.caption)
-                        .padding(.bottom)
-                }
+                recordingControls
             }
         }
         .task {
@@ -64,11 +35,35 @@ struct RecordServeView: View {
         }
     }
 
-    private func toggleRecording() {
-        if viewModel.isRecording {
-            viewModel.stopRecording(context: modelContext)
-        } else {
-            viewModel.startRecording()
+    @ViewBuilder
+    private var recordingControls: some View {
+        switch cameraViewModel.recordingState {
+        case .idle, .recording:
+            VStack(spacing: 8) {
+                Button(action: { cameraViewModel.toggleRecording() }) {
+                    Label(
+                        cameraViewModel.isRecording ? "Stop" : "Record Serve",
+                        systemImage: cameraViewModel.isRecording ? "stop.circle.fill" : "video.circle.fill"
+                    )
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(cameraViewModel.isRecording ? Color.red : Color.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.horizontal)
+
+                if let error = cameraViewModel.recordingError {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+            }
+            .padding(.bottom)
+
+        case .previewing:
+            EmptyView() // replaced by VideoPlayer sheet in Group 3
         }
     }
 }

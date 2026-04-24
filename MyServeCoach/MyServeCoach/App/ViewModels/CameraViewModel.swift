@@ -1,14 +1,25 @@
 import AVFoundation
 import Observation
 
+enum RecordingState {
+    case idle
+    case recording
+    case previewing(URL)
+}
+
 @Observable
 final class CameraViewModel {
     var cameraPosition: AVCaptureDevice.Position = .back
-    var isRecording = false
+    var recordingState: RecordingState = .idle
+    var recordingError: String?
 
     private let cameraService: CameraService
 
     var session: AVCaptureSession { cameraService.session }
+    var isRecording: Bool {
+        if case .recording = recordingState { return true }
+        return false
+    }
 
     init(cameraService: CameraService = CameraService()) {
         self.cameraService = cameraService
@@ -36,5 +47,40 @@ final class CameraViewModel {
         } catch {
             // Front camera unavailable on this device
         }
+    }
+
+    func toggleRecording() {
+        switch recordingState {
+        case .idle:
+            startRecording()
+        case .recording:
+            cameraService.stopRecording()
+        case .previewing:
+            break
+        }
+    }
+
+    private func startRecording() {
+        recordingError = nil
+        let url = tempMovieURL()
+        recordingState = .recording
+        cameraService.startRecording(to: url) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let outputURL):
+                    self.recordingState = .previewing(outputURL)
+                case .failure(let error):
+                    self.recordingError = error.localizedDescription
+                    self.recordingState = .idle
+                }
+            }
+        }
+    }
+
+    private func tempMovieURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mov")
     }
 }

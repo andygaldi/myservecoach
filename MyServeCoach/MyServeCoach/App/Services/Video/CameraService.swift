@@ -3,6 +3,8 @@ import AVFoundation
 final class CameraService: NSObject {
     let session = AVCaptureSession()
     private var currentInput: AVCaptureDeviceInput?
+    private let movieOutput = AVCaptureMovieFileOutput()
+    private var recordingCompletion: ((Result<URL, Error>) -> Void)?
     var isRecording = false
 
     func configure(position: AVCaptureDevice.Position = .back) throws {
@@ -23,8 +25,12 @@ final class CameraService: NSObject {
 
         session.addInput(input)
         currentInput = input
-        session.commitConfiguration()
 
+        if !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) {
+            session.addOutput(movieOutput)
+        }
+
+        session.commitConfiguration()
         updateMirroring(for: position)
     }
 
@@ -68,6 +74,16 @@ final class CameraService: NSObject {
         return newPosition
     }
 
+    func startRecording(to url: URL, completion: @escaping (Result<URL, Error>) -> Void) {
+        recordingCompletion = completion
+        movieOutput.startRecording(to: url, recordingDelegate: self)
+        isRecording = true
+    }
+
+    func stopRecording() {
+        movieOutput.stopRecording()
+    }
+
     private func captureDevice(for position: AVCaptureDevice.Position) throws -> AVCaptureDevice {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
             throw CameraServiceError.deviceUnavailable
@@ -80,6 +96,25 @@ final class CameraService: NSObject {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = (position == .front)
         }
+    }
+}
+
+extension CameraService: AVCaptureFileOutputRecordingDelegate {
+    func fileOutput(
+        _ output: AVCaptureFileOutput,
+        didFinishRecordingTo outputFileURL: URL,
+        from connections: [AVCaptureConnection],
+        error: Error?
+    ) {
+        isRecording = false
+        let result: Result<URL, Error>
+        if let error {
+            result = .failure(error)
+        } else {
+            result = .success(outputFileURL)
+        }
+        recordingCompletion?(result)
+        recordingCompletion = nil
     }
 }
 
