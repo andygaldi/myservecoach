@@ -4,21 +4,33 @@ import SwiftData
 struct RecordServeView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = RecordServeViewModel()
+    @State private var cameraViewModel = CameraViewModel()
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Spacer()
+        ZStack {
+            CameraPreviewView(session: cameraViewModel.session)
+                .ignoresSafeArea()
 
-                // Camera preview placeholder — replaced with AVCaptureVideoPreviewLayer in Video Capture MVP
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.secondary.opacity(0.2))
-                    .overlay(Text("Camera Preview").foregroundStyle(.secondary))
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(9/16, contentMode: .fit)
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: { cameraViewModel.toggleCamera() }) {
+                        Image(systemName: "camera.rotate")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .disabled(cameraViewModel.isRecording)
+                }
+                .padding()
+
+                Spacer()
 
                 if viewModel.isProcessing {
                     ProgressView("Analyzing serve…")
+                        .foregroundStyle(.white)
+                        .padding(.bottom)
                 } else {
                     Button(action: toggleRecording) {
                         Label(
@@ -33,17 +45,22 @@ struct RecordServeView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .padding(.horizontal)
+                    .padding(.bottom)
                 }
 
                 if let error = viewModel.recordingError {
                     Text(error)
                         .foregroundStyle(.red)
                         .font(.caption)
+                        .padding(.bottom)
                 }
-
-                Spacer()
             }
-            .navigationTitle("Record Serve")
+        }
+        .task {
+            await cameraViewModel.startSession()
+        }
+        .onDisappear {
+            cameraViewModel.stopSession()
         }
     }
 
