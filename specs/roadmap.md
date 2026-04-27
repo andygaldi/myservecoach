@@ -14,7 +14,7 @@ Basic SwiftUI project scaffold with folder structure matching the CLAUDE.md arch
 
 Camera view (full-screen portrait), record/stop button, post-recording preview playback. AVFoundation `AVCaptureSession` pipeline writing to a temp file. Real-device only; Simulator shows a placeholder.
 
-## Phase 2 — On-Device Pose Estimation & Serve Segmentation ⬜
+## Phase 2 — On-Device Pose Estimation & Serve Segmentation ✅
 
 Sample frames from the recorded video at a fixed interval. Run `VNDetectHumanBodyPoseRequest` on each frame. Detect serve boundaries by analyzing keypoint velocity across the frame sequence. Output is a list of per-serve keypoint arrays, not a flat stream. Log segmented keypoint JSON to the console. No backend call yet.
 

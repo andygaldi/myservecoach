@@ -2,14 +2,24 @@ import AVFoundation
 import Foundation
 
 actor PoseAnalysisPipeline {
-    private let sampler = FrameSamplerService()
-    private let estimator = PoseEstimationService()
-    private let segmenter = ServeSegmentationService()
+    private let sampler: FrameSamplerService
+    private let estimator: PoseEstimationService
+    private let segmenter: ServeSegmentationService
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.outputFormatting = [.prettyPrinted, .sortedKeys]
         return e
     }()
+
+    init(
+        sampler: FrameSamplerService = FrameSamplerService(),
+        estimator: PoseEstimationService = PoseEstimationService(),
+        segmenter: ServeSegmentationService = ServeSegmentationService()
+    ) {
+        self.sampler = sampler
+        self.estimator = estimator
+        self.segmenter = segmenter
+    }
 
     func analyze(videoURL: URL) async throws -> [[PoseFrame]] {
         let asset = AVURLAsset(url: videoURL)

@@ -23,6 +23,11 @@ enum PoseConstants {
     /// Sample every Nth frame from the 30 fps source, yielding ~10 fps of pose data.
     static let kPoseSampleStride: Int = 3
 
+    /// Minimum Vision confidence score for a joint to be included in a PoseFrame.
+    static let kConfidenceThreshold: Float = 0.3
+    /// Minimum number of joints above kConfidenceThreshold for a frame to be kept.
+    static let kMinJointCount: Int = 4
+
     /// Mean joint displacement (normalized 0–1) per frame below which motion is considered idle.
     static let kVelocityThreshold: Float = 0.015
     /// Consecutive low-velocity transitions required to declare a gap between serves.
