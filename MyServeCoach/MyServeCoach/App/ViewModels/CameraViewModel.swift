@@ -24,6 +24,7 @@ final class CameraViewModel {
     private let permissionChecker: () async -> Bool
 
     private let cameraService: any CameraServiceProtocol
+    private let pipeline = PoseAnalysisPipeline()
 
     var session: AVCaptureSession { cameraService.session }
     var isRecording: Bool {
@@ -79,6 +80,9 @@ final class CameraViewModel {
     }
 
     func useClip() {
+        if case .previewing(let url) = recordingState {
+            Task { try? await pipeline.analyze(videoURL: url) }
+        }
         previewItem = nil
         recordingState = .idle
     }
