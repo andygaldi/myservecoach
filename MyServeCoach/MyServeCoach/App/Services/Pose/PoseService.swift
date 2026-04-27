@@ -22,6 +22,13 @@ struct PoseFrame: Codable {
 enum PoseConstants {
     /// Sample every Nth frame from the 30 fps source, yielding ~10 fps of pose data.
     static let kPoseSampleStride: Int = 3
+
+    /// Mean joint displacement (normalized 0–1) per frame below which motion is considered idle.
+    static let kVelocityThreshold: Float = 0.015
+    /// Consecutive low-velocity transitions required to declare a gap between serves.
+    static let kMinGapFrames: Int = 15
+    /// Minimum frames a segment must contain to be counted as a serve.
+    static let kMinServeFrames: Int = 12
 }
 
 // MARK: - Protocol

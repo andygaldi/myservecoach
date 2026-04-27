@@ -79,18 +79,6 @@ final class CameraViewModel {
     }
 
     func useClip() {
-        // Temporary Group 2 smoke test — remove before Group 4
-        if case .previewing(let url) = recordingState {
-            Task {
-                let asset = AVURLAsset(url: url)
-                let sampler = FrameSamplerService()
-                let estimator = PoseEstimationService()
-                if let frames = try? await sampler.sampleFrames(from: asset) {
-                    let poses = await estimator.estimatePoses(from: frames)
-                    print("[MyServeCoach] Frames in: \(frames.count), PoseFrames out: \(poses.count)")
-                }
-            }
-        }
         previewItem = nil
         recordingState = .idle
     }
