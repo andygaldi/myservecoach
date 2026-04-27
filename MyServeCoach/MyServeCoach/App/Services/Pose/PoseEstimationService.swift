@@ -18,7 +18,7 @@ final class PoseEstimationService {
         return poseFrames
     }
 
-    private func detectPose(at time: CMTime, in image: CGImage) -> PoseFrame? {
+    func detectPose(at time: CMTime, in image: CGImage) -> PoseFrame? {
         let request = VNDetectHumanBodyPoseRequest()
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
 
