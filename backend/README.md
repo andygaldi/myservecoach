@@ -13,7 +13,7 @@ The API will be available at `http://localhost:8000`.
 ## Sample Request
 
 ```bash
-curl -X POST http://localhost:8000/analyze \
+curl -X POST http://localhost:8000/v1/analyze \
   -H "Content-Type: application/json" \
   -d '{
     "frames": [

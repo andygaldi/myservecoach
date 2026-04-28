@@ -15,6 +15,7 @@ class Frame(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     frames: list[Frame] = Field(min_length=1)
+    session_id: str | None = None
 
 
 class ServePhase(str, Enum):
@@ -35,4 +36,4 @@ class Cue(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
-    cues: list[Cue]
+    cues: list[Cue] = Field(min_length=1)

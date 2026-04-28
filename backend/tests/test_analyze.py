@@ -20,7 +20,7 @@ def transport():
 @pytest.mark.asyncio
 async def test_valid_payload_returns_200(transport):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/analyze", json={"frames": [VALID_FRAME]})
+        response = await client.post("/v1/analyze", json={"frames": [VALID_FRAME]})
     assert response.status_code == 200
     body = AnalyzeResponse.model_validate(response.json())
     assert len(body.cues) > 0
@@ -29,14 +29,14 @@ async def test_valid_payload_returns_200(transport):
 @pytest.mark.asyncio
 async def test_empty_frames_returns_422(transport):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/analyze", json={"frames": []})
+        response = await client.post("/v1/analyze", json={"frames": []})
     assert response.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_missing_keypoints_returns_422(transport):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/analyze", json={"frames": [{"timestamp": 0.0}]})
+        response = await client.post("/v1/analyze", json={"frames": [{"timestamp": 0.0}]})
     assert response.status_code == 422
 
 
@@ -49,5 +49,5 @@ async def test_extra_keypoint_fields_ignored(transport):
         },
     }
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/analyze", json={"frames": [frame]})
+        response = await client.post("/v1/analyze", json={"frames": [frame]})
     assert response.status_code == 200

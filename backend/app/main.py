@@ -3,4 +3,4 @@ from app.routers import analyze
 
 app = FastAPI(title="MyServeCoach API")
 
-app.include_router(analyze.router)
+app.include_router(analyze.router, prefix="/v1")
