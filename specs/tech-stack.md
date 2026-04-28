@@ -8,7 +8,8 @@
 | UI | SwiftUI | MVVM architecture; views stay thin |
 | Persistence | SwiftData | Local session history; no iCloud sync in MVP |
 | Video capture | AVFoundation | `AVCaptureSession` for recording; portrait lock |
-| Pose estimation | Apple Vision | `VNDetectHumanBodyPoseRequest`; on-device, no API cost |
+| Video import | PhotosUI | `PhotosPicker` (iOS 16+); user selects existing video from Photos library for Assessment; requests video asset only, avoiding full library permission |
+| Pose estimation | Apple Vision | `VNDetectHumanBodyPoseRequest`; on-device, no API cost; runs on recorded frames during analysis and on the live camera feed for the pre-recording confidence check |
 | Serve segmentation | Apple Vision | On-device; detects serve boundaries via pose velocity / keypoint activity within `VNDetectHumanBodyPoseRequest` output |
 | Networking | URLSession | `async/await`; posts keypoint JSON to backend; network required — no offline fallback |
 | Audible feedback | AVSpeechSynthesizer | Speaks per-serve goal result in Set Goal workflow; no external TTS dependency |
