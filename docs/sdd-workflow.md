@@ -90,7 +90,7 @@ Start a fresh session before beginning implementation to avoid carry-over from t
 
 Ask the agent to implement the task groups in your feature's `plan.md`:
 
-> Implement the task groups in plan.md.
+> Implement the [first] task group in plan.md.
 
 Note: sometimes you might choose to do task groups one at a time for smaller commits.
 
