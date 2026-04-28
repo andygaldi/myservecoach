@@ -37,6 +37,9 @@ Club-level competitive tennis player who:
 - Natural-language coaching powered by LLM (Claude API) for richer, conversational feedback
 - Visual pose skeleton overlay on keyframe thumbnails
 - Longitudinal serve history and trend analysis
+- Dual-iPhone capture: a companion device records from a second angle (e.g., behind + side); frames are synchronized via MultipeerConnectivity and a visual/audio start marker, then triangulated into 3D joint positions — meaningfully improving toss height/lateral position accuracy and enabling true 3D biomechanics
+- Apple Watch integration: remote start/stop of recording from the wrist so the player never has to touch the phone between serves; Watch accelerometer and gyroscope data captured during the serve motion to measure wrist speed and pronation angle through contact
+- External racket sensor support: Bluetooth accelerometer/IMU attached to the racket frame to measure racket-head speed and swing-path angle, filling the gap that camera-only pose estimation cannot reliably capture
 
 ## Business Model
 
