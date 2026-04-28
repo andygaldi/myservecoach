@@ -42,22 +42,32 @@ SwiftData models: `ServeSession` (full clip metadata — date, duration, total s
 
 Loading/progress states during analysis. Error handling (network failure, no pose detected). Empty states for history screen. Basic app icon and launch screen. **Assessment workflow complete.**
 
-## Phase 9 — Goal Library & Selection UI ⬜
+## Phase 9 — Video Library Import ⬜
+
+Video input selection screen presented at the start of an Assessment session. The user chooses between recording a new clip live or picking an existing video from their Photos library. Selecting a library video feeds it through the same Phase 2 pipeline (frame sampling → pose estimation → serve segmentation) and into the normal assessment flow — results and persistence are identical regardless of input source. Uses SwiftUI's `PhotosPicker` (iOS 16+) to request only the video asset, avoiding a full Photos library permission prompt.
+
+## Phase 10 — Goal Library & Selection UI ⬜
 
 Define the goal catalog: each goal maps to one specific rule/metric in `rules.json` (e.g., `pronation_contact`, `trophy_pose_elbow_height`). Backend `POST /analyze` accepts an optional `goal_id`; when present, returns a `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. SwiftUI goal-selection screen presented before starting a Set Goal session.
 
-## Phase 10 — Set Goal Session Mode ⬜
+## Phase 11 — Set Goal Session Mode ⬜
 
 Continuous recording session: `AVCaptureSession` runs uninterrupted from session start to "End Session". On-device serve detection (same keypoint velocity algorithm from Phase 2, applied to the live feed) automatically identifies each serve as it happens. After each detected serve: analyze keypoints → POST to backend with `goal_id` → speak the `spoken_cue` result via AVSpeechSynthesizer → resume listening for the next serve. Player never needs to touch the screen between serves. When the session ends the video is discarded; only keypoints and pass/fail results are persisted.
 
-## Phase 11 — Goal Session Persistence ⬜
+## Phase 12 — Goal Session Persistence ⬜
 
 SwiftData models for `GoalSession` and `GoalAttempt` (per-serve pass/fail + spoken cue). Summary screen after ending a session (pass rate, attempt count). Goal sessions appear in history alongside Assessment sessions. **Set Goal workflow complete.**
 
-## Phase 12 — LLM Coaching Cues ⬜
+## Phase 13 — LLM Coaching Cues ⬜
 
 Integrate Claude API in the backend. Pass rule violations + keypoints to Claude to generate natural-language coaching paragraphs. Displayed as an expandable section below the cue list in the Assessment results screen.
 
-## Phase 13 — Pose Skeleton Overlay ⬜
+## Phase 14 — Pose Skeleton Overlay & Live Confidence Check ⬜
 
-Draw the detected skeleton on keyframe thumbnails in the results screen using SwiftUI `Canvas` or Core Graphics. Gives players visual confirmation that pose detection worked correctly.
+Two related features sharing the same skeleton-rendering layer:
+
+**Pre-recording confidence check**: Before an Assessment or Set Goal session begins, the camera view runs `VNDetectHumanBodyPoseRequest` on the live feed and draws a real-time skeleton overlay on screen. Joint confidence is evaluated against the same thresholds used during analysis; if key joints (shoulders, elbows, wrists, hips) fall below the minimum, a prominent warning prompts the user to adjust their position, lighting, or camera angle before proceeding. The user taps "Looks good" to dismiss the check and start recording.
+
+**Results-screen overlay**: Draw the detected skeleton on keyframe thumbnails in the results screen using SwiftUI `Canvas` or Core Graphics, giving players visual confirmation that pose detection worked correctly on the recorded footage.
+
+Both surfaces share the same joint-drawing component; the confidence check adds the live-feed sampling loop and the threshold-based warning UI on top.
