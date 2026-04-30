@@ -8,9 +8,9 @@ def make_frame(timestamp: float, keypoints: dict) -> Frame:
 
 
 # Canonical trophy-pose keypoints for a right-handed player:
-#   right_shoulder=(0.6,0.7), right_elbow=(0.6,0.5), right_wrist=(0.8,0.5) → 90° at elbow (in 80–110°)
 #   left_wrist y=0.8 > left_shoulder y=0.65  → toss wrist above shoulder
 #   right_hip y=0.3;  left_wrist y=0.8 > 0.3, right_wrist y=0.5 > 0.3  → both wrists above hip
+#   (elbow geometry included for rule tests but is not used by phase detection)
 TROPHY_KPS = {
     "right_shoulder": {"x": 0.6, "y": 0.7, "confidence": 0.9},
     "right_elbow":    {"x": 0.6, "y": 0.5, "confidence": 0.9},
@@ -42,17 +42,6 @@ def test_non_trophy_frame_before_trophy_is_skipped():
     result = detect_phases([f0, f1])
     assert result[ServePhase.trophy_pose] is f1
 
-
-def test_trophy_elbow_angle_outside_range_rejected():
-    # Horizontal straight arm → 180°, outside 80–110°
-    f = make_frame(0.0, {
-        **TROPHY_KPS,
-        "right_shoulder": {"x": 0.3, "y": 0.5, "confidence": 0.9},
-        "right_elbow":    {"x": 0.5, "y": 0.5, "confidence": 0.9},
-        "right_wrist":    {"x": 0.7, "y": 0.5, "confidence": 0.9},
-    })
-    result = detect_phases([f])
-    assert result[ServePhase.trophy_pose] is None
 
 
 def test_trophy_wrists_not_above_hip_rejected():

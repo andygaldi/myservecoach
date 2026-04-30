@@ -1,21 +1,21 @@
 from fastapi import APIRouter
 from app.models import AnalyzeRequest, AnalyzeResponse, Cue, ServePhase, Severity
+from app.engine.phases import detect_phases
+from app.engine.rules import evaluate_rules
 
 router = APIRouter()
+
+_CLEAN_SERVE_CUE = Cue(
+    phase=ServePhase.contact,
+    message="No major issues detected — good serve!",
+    severity=Severity.minor,
+)
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
-    cues = [
-        Cue(
-            phase=ServePhase.trophy_pose,
-            message="Raise your tossing arm higher at trophy pose — elbow should be at shoulder height.",
-            severity=Severity.major,
-        ),
-        Cue(
-            phase=ServePhase.contact,
-            message="Extend fully through contact — you're cutting the swing short slightly.",
-            severity=Severity.minor,
-        ),
-    ]
+    phase_frames = detect_phases(request.frames)
+    cues = evaluate_rules(phase_frames)
+    if not cues:
+        cues = [_CLEAN_SERVE_CUE]
     return AnalyzeResponse(cues=cues)
