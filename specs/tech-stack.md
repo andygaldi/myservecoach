@@ -22,6 +22,7 @@
 | Language | Python 3.12 | |
 | Framework | FastAPI | `POST /analyze` receives keypoints, returns cues |
 | Coaching engine | Rule-based (MVP) | `rules.json` threshold config; supports optional `goal_id` for Set Goal workflow |
+| Calibration tooling | Python scripts | `backend/tools/inspect_phases.py` and `analyze_angles.py`; developer utilities for validating phase detection and grounding rule thresholds against real serve keypoint data |
 | LLM coaching | Claude API (future) | Natural-language cues in a later phase; not in MVP |
 | Hosting | TBD | Local dev server for MVP; cloud target TBD |
 
@@ -36,13 +37,13 @@
 
 ## Repository Structure
 
-iOS app and FastAPI backend live in the same repository (monorepo). Backend code goes in `backend/`; iOS app code stays at the repo root under `App/`. This keeps the tight iOS ↔ backend contract (keypoint JSON schema, coaching cues format) in a single commit history and eliminates cross-repo coordination overhead for a solo project. If the backend needs to be extracted later (e.g., cloud hosting with independent deploys, separate team), `git filter-repo` can do that without losing history.
+iOS app and FastAPI backend live in the same repository (monorepo). Backend code goes in `backend/`; iOS app code stays at the repo root under `App/`. Developer calibration scripts live in `backend/tools/` and are checked in as permanent utilities. This keeps the tight iOS ↔ backend contract (keypoint JSON schema, coaching cues format) in a single commit history and eliminates cross-repo coordination overhead for a solo project. If the backend needs to be extracted later (e.g., cloud hosting with independent deploys, separate team), `git filter-repo` can do that without losing history.
 
 ## Key Architectural Decisions
 
 - **On-device pose extraction and serve segmentation**: Vision runs on the phone for both pose estimation and serve boundary detection (via keypoint velocity analysis). Segmentation runs on a saved video file in Assessment and on the live camera feed in Set Goal. Only filtered keypoint JSON is sent to the backend. Video never leaves the device; Set Goal session video is discarded after the session ends.
 - **Network required, no offline fallback**: Analysis depends on a backend POST. If the backend is unreachable, the app shows a clear error. No queueing or on-device rule fallback.
-- **Rule-based engine first**: Deterministic coaching output keeps the MVP debuggable and fast. LLM layer added later as an enhancement, not a dependency.
+- **Rule-based engine first**: Deterministic coaching output keeps the MVP debuggable and fast. LLM layer added later as an enhancement, not a dependency. Rule thresholds and phase detection heuristics are validated against real serve keypoint data (Phases 5–6) before the iOS app depends on them, ensuring cues reflect actual biomechanics rather than synthetic assumptions.
 - **Local persistence only**: SwiftData stores session history on-device. No user account or cloud sync in MVP.
 - **No authentication in MVP**: The app is local-first; no login required until cloud sync or social features are introduced.
 - **Audible feedback is on-device only**: AVSpeechSynthesizer speaks the per-serve result in the Set Goal workflow. No internet required for the spoken cue itself; only the analysis POST needs connectivity.
