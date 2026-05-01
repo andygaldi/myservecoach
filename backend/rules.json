@@ -1,0 +1,55 @@
+{
+  "rules": [
+    {
+      "id": "trophy_toss_arm_height",
+      "phase": "trophy_pose",
+      "metric": "y_diff",
+      "joints": ["left_wrist", "left_shoulder"],
+      "comparison": "gte",
+      "threshold": 0,
+      "severity": "major",
+      "message": "Raise your tossing arm higher — toss wrist should be above shoulder height at trophy pose."
+    },
+    {
+      "id": "trophy_racket_elbow_flexion",
+      "phase": "trophy_pose",
+      "metric": "angle",
+      "joints": ["right_shoulder", "right_elbow", "right_wrist"],
+      "comparison": "range",
+      "threshold_min": 80,
+      "threshold_max": 110,
+      "severity": "major",
+      "message": "Adjust your racket arm bend — elbow should be between 80° and 110° at trophy pose."
+    },
+    {
+      "id": "racket_drop_depth",
+      "phase": "racket_drop",
+      "metric": "y_diff",
+      "joints": ["right_wrist", "right_hip"],
+      "comparison": "lte",
+      "threshold": 0,
+      "severity": "major",
+      "message": "Drop the racket lower — hitting wrist should fall below hip level at the racket drop."
+    },
+    {
+      "id": "contact_arm_extension",
+      "phase": "contact",
+      "metric": "angle",
+      "joints": ["right_shoulder", "right_elbow", "right_wrist"],
+      "comparison": "gte",
+      "threshold": 150,
+      "severity": "major",
+      "message": "Extend your hitting arm fully through contact — elbow angle should reach at least 150°."
+    },
+    {
+      "id": "contact_wrist_height",
+      "phase": "contact",
+      "metric": "y_diff",
+      "joints": ["right_wrist", "right_shoulder"],
+      "comparison": "gte",
+      "threshold": 0,
+      "severity": "minor",
+      "message": "Drive your arm higher at contact — hitting wrist should be above shoulder level."
+    }
+  ]
+}

@@ -22,7 +22,7 @@ Sample frames from the recorded video at a fixed interval. Run `VNDetectHumanBod
 
 FastAPI project at `backend/` in the same repo as the iOS app. Implements a `POST /analyze` endpoint that accepts a single serve's keypoint JSON and returns a hardcoded list of coaching cues. This single-serve contract is shared by both workflows — Assessment loops one call per segmented serve; Set Goal calls it once per detected serve. Confirms the iOS ↔ backend contract before any real logic is written.
 
-## Phase 4 — Coaching Rule Engine ⬜
+## Phase 4 — Coaching Rule Engine ✅
 
 Implement `rules.json` threshold config and angle computation utilities. Serve phase detection (trophy pose, racket drop, contact point). Unit-tested with pytest. Backend now returns real cues instead of hardcoded ones.
 
