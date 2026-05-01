@@ -26,43 +26,51 @@ FastAPI project at `backend/` in the same repo as the iOS app. Implements a `POS
 
 Implement `rules.json` threshold config and angle computation utilities. Serve phase detection (trophy pose, racket drop, contact point). Unit-tested with pytest. Backend now returns real cues instead of hardcoded ones.
 
-## Phase 5 — iOS Networking ⬜
-
-URLSession `async/await` layer. For each segmented serve from Phase 2, POST its keypoint JSON to the Phase 3/4 backend (one call per serve). Collect the cue responses and surface them in a basic SwiftUI text view.
-
-## Phase 6 — Results Screen ⬜
-
-Dedicated SwiftUI results screen: session date/time header, one keyframe thumbnail per segmented serve (contact-point frame; no skeleton yet), scrollable list of coaching cues per serve. Displayed immediately after analysis completes.
-
-## Phase 7 — SwiftData Persistence ⬜
-
-SwiftData models: `ServeSession` (full clip metadata — date, duration, total serves) with child `ServeAttempt` records (one per segmented serve, each holding its keypoints and coaching cues). History list screen shows past sessions; tap to re-open results.
-
-## Phase 8 — Assessment MVP Polish ⬜
-
-Loading/progress states during analysis. Error handling (network failure, no pose detected). Empty states for history screen. Basic app icon and launch screen. **Assessment workflow complete.**
-
-## Phase 9 — Video Library Import ⬜
+## Phase 5 — Video Library Import ⬜
 
 Video input selection screen presented at the start of an Assessment session. The user chooses between recording a new clip live or picking an existing video from their Photos library. Selecting a library video feeds it through the same Phase 2 pipeline (frame sampling → pose estimation → serve segmentation) and into the normal assessment flow — results and persistence are identical regardless of input source. Uses SwiftUI's `PhotosPicker` (iOS 16+) to request only the video asset, avoiding a full Photos library permission prompt.
 
-## Phase 10 — Goal Library & Selection UI ⬜
+## Phase 6 — Segmentation Calibration ⬜
+
+Validate and tune the heuristic phase detection logic against real serve footage. Input videos come from two sources: clips recorded directly with the iOS app and external serve videos imported via the Phase 5 Photos library picker — both go through the same on-device Vision pose estimation pipeline. Export the keypoint JSON from the Xcode console and the video file from the device (AirDrop or Files app). A Python script in `backend/tools/` takes those two files, extracts frame images using OpenCV at the timestamps in the keypoint JSON, and produces an HTML report showing thumbnails of every sampled frame alongside highlighted images of the frame identified for each phase (trophy pose, racket drop, contact). No pose estimation happens in the Python tool — it only handles frame extraction and layout. Compare the report against the source video and adjust `phases.py` heuristics until all three phases land on the visually correct frames across a representative set of serves.
+
+## Phase 7 — Rule Calibration ⬜
+
+Ground the rule thresholds in real biomechanics. Using the same serve videos from Phase 6, run a developer script (`backend/tools/analyze_angles.py`) that prints all joint angles and relative positions at each validated phase frame for each serve. Compare measured values from technically sound serves against the current `rules.json` thresholds. Update thresholds — and add, remove, or re-weight rules — to reflect what a good serve actually looks like. The script is checked into `backend/tools/` as a permanent dev utility alongside the Phase 6 visual report tool.
+
+## Phase 8 — iOS Networking ⬜
+
+URLSession `async/await` layer. For each segmented serve from Phase 2, POST its keypoint JSON to the Phase 3/4 backend (one call per serve). Collect the cue responses and surface them in a basic SwiftUI text view.
+
+## Phase 9 — Results Screen ⬜
+
+Dedicated SwiftUI results screen: session date/time header, one keyframe thumbnail per segmented serve (contact-point frame; no skeleton yet), scrollable list of coaching cues per serve. Displayed immediately after analysis completes.
+
+## Phase 10 — SwiftData Persistence ⬜
+
+SwiftData models: `ServeSession` (full clip metadata — date, duration, total serves) with child `ServeAttempt` records (one per segmented serve, each holding its keypoints and coaching cues). History list screen shows past sessions; tap to re-open results.
+
+## Phase 11 — Assessment MVP Polish ⬜
+
+Loading/progress states during analysis. Error handling (network failure, no pose detected). Empty states for history screen. Basic app icon and launch screen. **Assessment workflow complete.**
+
+## Phase 12 — Goal Library & Selection UI ⬜
 
 Define the goal catalog: each goal maps to one specific rule/metric in `rules.json` (e.g., `pronation_contact`, `trophy_pose_elbow_height`). Backend `POST /analyze` accepts an optional `goal_id`; when present, returns a `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. SwiftUI goal-selection screen presented before starting a Set Goal session.
 
-## Phase 11 — Set Goal Session Mode ⬜
+## Phase 13 — Set Goal Session Mode ⬜
 
 Continuous recording session: `AVCaptureSession` runs uninterrupted from session start to "End Session". On-device serve detection (same keypoint velocity algorithm from Phase 2, applied to the live feed) automatically identifies each serve as it happens. After each detected serve: analyze keypoints → POST to backend with `goal_id` → speak the `spoken_cue` result via AVSpeechSynthesizer → resume listening for the next serve. Player never needs to touch the screen between serves. When the session ends the video is discarded; only keypoints and pass/fail results are persisted.
 
-## Phase 12 — Goal Session Persistence ⬜
+## Phase 14 — Goal Session Persistence ⬜
 
 SwiftData models for `GoalSession` and `GoalAttempt` (per-serve pass/fail + spoken cue). Summary screen after ending a session (pass rate, attempt count). Goal sessions appear in history alongside Assessment sessions. **Set Goal workflow complete.**
 
-## Phase 13 — LLM Coaching Cues ⬜
+## Phase 15 — LLM Coaching Cues ⬜
 
 Integrate Claude API in the backend. Pass rule violations + keypoints to Claude to generate natural-language coaching paragraphs. Displayed as an expandable section below the cue list in the Assessment results screen.
 
-## Phase 14 — Pose Skeleton Overlay & Live Confidence Check ⬜
+## Phase 16 — Pose Skeleton Overlay & Live Confidence Check ⬜
 
 Two related features sharing the same skeleton-rendering layer:
 
