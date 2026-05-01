@@ -1,11 +1,8 @@
 import math
 import pytest
 from app.models import Frame, Keypoint
-from app.engine.angles import compute_angle, keypoint_y
-
-
-def make_frame(keypoints: dict) -> Frame:
-    return Frame(timestamp=0.0, keypoints={k: Keypoint(**v) for k, v in keypoints.items()})
+from app.engine.angles import compute_angle, joint_xy, keypoint_y, MIN_CONFIDENCE
+from conftest import make_frame
 
 
 # --- compute_angle ---
@@ -29,9 +26,9 @@ def test_45_degree_angle():
     assert compute_angle((1, 0), (0, 0), (1, 1)) == pytest.approx(45.0, abs=1e-6)
 
 
-def test_degenerate_zero_vector_returns_0():
-    # b == a collapses one vector to zero length
-    assert compute_angle((0, 0), (0, 0), (1, 0)) == 0.0
+def test_degenerate_zero_vector_returns_none():
+    # b == a collapses one vector to zero length → None
+    assert compute_angle((0, 0), (0, 0), (1, 0)) is None
 
 
 # --- keypoint_y ---
@@ -57,8 +54,8 @@ def test_keypoint_y_respects_custom_min_confidence():
     assert keypoint_y(frame, "right_wrist", min_confidence=0.4) is None
 
 
-def test_keypoint_y_at_confidence_boundary_excluded():
-    # confidence exactly at threshold is below (strict less-than check)
-    frame = make_frame({"right_wrist": {"x": 0.5, "y": 0.7, "confidence": 0.4}})
-    # 0.4 < 0.4 is False, so the value IS returned
-    assert keypoint_y(frame, "right_wrist", min_confidence=0.4) == pytest.approx(0.7)
+def test_keypoint_y_at_confidence_boundary_included():
+    # confidence exactly at threshold IS included — the check is strict less-than (<), not <=
+    frame = make_frame({"right_wrist": {"x": 0.5, "y": 0.7, "confidence": MIN_CONFIDENCE}})
+    # MIN_CONFIDENCE < MIN_CONFIDENCE is False, so the value IS returned
+    assert keypoint_y(frame, "right_wrist", min_confidence=MIN_CONFIDENCE) == pytest.approx(0.7)

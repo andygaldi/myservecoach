@@ -30,10 +30,12 @@ class Severity(str, Enum):
 
 
 class Cue(BaseModel):
+    rule_id: str
     phase: ServePhase
     message: str
     severity: Severity
 
 
 class AnalyzeResponse(BaseModel):
-    cues: list[Cue] = Field(min_length=1)
+    cues: list[Cue] = Field(default_factory=list)
+    summary: str | None = None

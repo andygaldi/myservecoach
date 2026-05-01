@@ -1,10 +1,7 @@
 import pytest
 from app.models import Frame, Keypoint, ServePhase
 from app.engine.phases import detect_phases
-
-
-def make_frame(timestamp: float, keypoints: dict) -> Frame:
-    return Frame(timestamp=timestamp, keypoints={k: Keypoint(**v) for k, v in keypoints.items()})
+from conftest import make_frame
 
 
 # Canonical trophy-pose keypoints for a right-handed player:
@@ -24,36 +21,48 @@ TROPHY_KPS = {
 # --- Trophy pose detection ---
 
 def test_single_trophy_frame_detected():
-    f = make_frame(0.0, TROPHY_KPS)
+    f = make_frame(TROPHY_KPS, 0.0)
     result = detect_phases([f])
     assert result[ServePhase.trophy_pose] is f
 
 
 def test_trophy_is_first_qualifying_frame():
-    f0 = make_frame(0.0, TROPHY_KPS)
-    f1 = make_frame(1.0, TROPHY_KPS)
+    f0 = make_frame(TROPHY_KPS, 0.0)
+    f1 = make_frame(TROPHY_KPS, 1.0)
     result = detect_phases([f0, f1])
     assert result[ServePhase.trophy_pose] is f0
 
 
 def test_non_trophy_frame_before_trophy_is_skipped():
-    f0 = make_frame(0.0, {**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}})  # toss wrist below shoulder
-    f1 = make_frame(1.0, TROPHY_KPS)
+    f0 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}}, 0.0)  # toss wrist below shoulder
+    f1 = make_frame(TROPHY_KPS, 1.0)
     result = detect_phases([f0, f1])
     assert result[ServePhase.trophy_pose] is f1
 
 
-
 def test_trophy_wrists_not_above_hip_rejected():
     # right_wrist y=0.2 < right_hip y=0.3 → fails "both wrists above hip"
-    f = make_frame(0.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.2, "confidence": 0.9}})
+    f = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.2, "confidence": 0.9}}, 0.0)
+    result = detect_phases([f])
+    assert result[ServePhase.trophy_pose] is None
+
+
+def test_toss_wrist_below_hip_rejected():
+    # Toss wrist (left_wrist) is above toss shoulder but at or below hitting hip y.
+    # left_wrist y=0.3 ≤ right_hip y=0.3 → fails the "both wrists above hip" guard.
+    kps = {
+        **TROPHY_KPS,
+        "left_wrist": {"x": 0.3, "y": 0.3, "confidence": 0.9},  # at hip level, not above
+        "right_hip":  {"x": 0.5, "y": 0.3, "confidence": 0.9},
+    }
+    f = make_frame(kps, 0.0)
     result = detect_phases([f])
     assert result[ServePhase.trophy_pose] is None
 
 
 def test_low_confidence_keypoints_block_trophy():
     low_conf = {k: {**v, "confidence": 0.1} for k, v in TROPHY_KPS.items()}
-    result = detect_phases([make_frame(0.0, low_conf)])
+    result = detect_phases([make_frame(low_conf, 0.0)])
     assert result[ServePhase.trophy_pose] is None
 
 
@@ -61,27 +70,28 @@ def test_low_confidence_keypoints_block_trophy():
 
 def test_low_wrist_before_trophy_is_not_racket_drop():
     # Frame 0 has the lowest wrist in the sequence but precedes trophy → must not be racket drop
-    f0 = make_frame(0.0, {**TROPHY_KPS,
-                          "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},   # fails trophy
-                          "right_wrist": {"x": 0.8, "y": 0.02, "confidence": 0.9}})  # lowest wrist
-    f1 = make_frame(1.0, TROPHY_KPS)  # trophy; right_wrist y=0.5
-    f2 = make_frame(2.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.1, "confidence": 0.9}})  # drop (post-trophy minimum)
-    f3 = make_frame(3.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.9, "confidence": 0.9}})  # contact
+    f0 = make_frame({**TROPHY_KPS,
+                     "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},   # fails trophy
+                     "right_wrist": {"x": 0.8, "y": 0.02, "confidence": 0.9}}, 0.0)  # lowest wrist
+    f1 = make_frame(TROPHY_KPS, 1.0)  # trophy; right_wrist y=0.5
+    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.1, "confidence": 0.9}}, 2.0)  # drop (post-trophy minimum)
+    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.9, "confidence": 0.9}}, 3.0)  # contact
 
     result = detect_phases([f0, f1, f2, f3])
     assert result[ServePhase.racket_drop] is f2  # not f0
+    assert result[ServePhase.contact] is f3
 
 
 def test_no_trophy_means_no_racket_drop():
-    f0 = make_frame(0.0, {**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}})
-    f1 = make_frame(1.0, {**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9}})
+    f0 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}}, 0.0)
+    f1 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9}}, 1.0)
     result = detect_phases([f0, f1])
     assert result[ServePhase.trophy_pose] is None
     assert result[ServePhase.racket_drop] is None
 
 
 def test_no_frames_after_trophy_gives_no_racket_drop():
-    f0 = make_frame(0.0, TROPHY_KPS)
+    f0 = make_frame(TROPHY_KPS, 0.0)
     result = detect_phases([f0])
     assert result[ServePhase.racket_drop] is None
 
@@ -90,11 +100,11 @@ def test_no_frames_after_trophy_gives_no_racket_drop():
 
 def test_high_wrist_before_racket_drop_is_not_contact():
     # Frame 2 has a high wrist but precedes the racket drop → must not be contact
-    f0 = make_frame(0.0, {**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}})
-    f1 = make_frame(1.0, TROPHY_KPS)  # trophy
-    f2 = make_frame(2.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.85, "confidence": 0.9}})  # high wrist pre-drop
-    f3 = make_frame(3.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}})  # racket drop
-    f4 = make_frame(4.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.95, "confidence": 0.9}})  # contact
+    f0 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}}, 0.0)
+    f1 = make_frame(TROPHY_KPS, 1.0)  # trophy
+    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.85, "confidence": 0.9}}, 2.0)  # high wrist pre-drop
+    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}}, 3.0)  # racket drop
+    f4 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.95, "confidence": 0.9}}, 4.0)  # contact
 
     result = detect_phases([f0, f1, f2, f3, f4])
     assert result[ServePhase.racket_drop] is f3
@@ -103,10 +113,10 @@ def test_high_wrist_before_racket_drop_is_not_contact():
 
 def test_no_racket_drop_contact_searches_full_sequence():
     # No trophy → no racket drop → contact falls back to full-sequence search
-    f0 = make_frame(0.0, {**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},
-                          "right_wrist": {"x": 0.8, "y": 0.6, "confidence": 0.9}})
-    f1 = make_frame(1.0, {**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9},
-                          "right_wrist": {"x": 0.8, "y": 0.9, "confidence": 0.9}})  # highest wrist
+    f0 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},
+                     "right_wrist": {"x": 0.8, "y": 0.6, "confidence": 0.9}}, 0.0)
+    f1 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9},
+                     "right_wrist": {"x": 0.8, "y": 0.9, "confidence": 0.9}}, 1.0)  # highest wrist
 
     result = detect_phases([f0, f1])
     assert result[ServePhase.trophy_pose] is None
@@ -115,8 +125,8 @@ def test_no_racket_drop_contact_searches_full_sequence():
 
 
 def test_no_frames_after_racket_drop_gives_no_contact():
-    f0 = make_frame(0.0, TROPHY_KPS)  # trophy
-    f1 = make_frame(1.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}})  # drop (last frame)
+    f0 = make_frame(TROPHY_KPS, 0.0)  # trophy
+    f1 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}}, 1.0)  # drop (last frame)
     result = detect_phases([f0, f1])
     assert result[ServePhase.racket_drop] is f1
     assert result[ServePhase.contact] is None
@@ -125,10 +135,10 @@ def test_no_frames_after_racket_drop_gives_no_contact():
 # --- Full sequence integration ---
 
 def test_full_sequence_resolves_all_three_phases():
-    f0 = make_frame(0.0, {**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}})  # pre-serve
-    f1 = make_frame(1.0, TROPHY_KPS)                                                                # trophy
-    f2 = make_frame(2.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}}) # racket drop
-    f3 = make_frame(3.0, {**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.95, "confidence": 0.9}}) # contact
+    f0 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}}, 0.0)  # pre-serve
+    f1 = make_frame(TROPHY_KPS, 1.0)                                                                # trophy
+    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}}, 2.0) # racket drop
+    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.95, "confidence": 0.9}}, 3.0) # contact
 
     result = detect_phases([f0, f1, f2, f3])
     assert result[ServePhase.trophy_pose] is f1
