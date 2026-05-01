@@ -36,7 +36,7 @@ Validate and tune the heuristic phase detection logic against real serve footage
 
 ## Phase 7 — Rule Calibration ⬜
 
-Ground the rule thresholds in real biomechanics. Using the same serve videos from Phase 6, run a developer script (`backend/tools/analyze_angles.py`) that prints all joint angles and relative positions at each validated phase frame for each serve. Compare measured values from technically sound serves against the current `rules.json` thresholds. Update thresholds — and add, remove, or re-weight rules — to reflect what a good serve actually looks like. Both tools are checked into `backend/tools/` as permanent dev utilities.
+Ground the rule thresholds in real biomechanics. Using the same serve videos from Phase 6, run a developer script (`backend/tools/analyze_angles.py`) that prints all joint angles and relative positions at each validated phase frame for each serve. Compare measured values from technically sound serves against the current `rules.json` thresholds. Update thresholds — and add, remove, or re-weight rules — to reflect what a good serve actually looks like. The script is checked into `backend/tools/` as a permanent dev utility alongside the Phase 6 visual report tool.
 
 ## Phase 8 — iOS Networking ⬜
 
