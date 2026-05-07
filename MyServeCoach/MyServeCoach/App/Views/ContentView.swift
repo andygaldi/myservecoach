@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         TabView {
-            RecordServeView()
+            VideoSourceSelectionView()
                 .tabItem {
                     Label("Record", systemImage: "video.circle")
                 }

@@ -4,7 +4,7 @@ import Vision
 // MARK: - Domain Types
 
 /// Normalized 2D keypoint. Coordinates are in Vision's normalized image space (0–1).
-struct JointPoint: Codable {
+struct JointPoint: Codable, Sendable {
     let x: Float
     let y: Float
     let confidence: Float
@@ -12,7 +12,7 @@ struct JointPoint: Codable {
 
 /// Pose keypoints detected in a single sampled video frame.
 /// `joints` keys are `VNHumanBodyPoseObservation.JointName.rawValue` strings.
-struct PoseFrame: Codable {
+struct PoseFrame: Codable, Sendable {
     let timestamp: Double
     let joints: [String: JointPoint]
 }
