@@ -137,6 +137,49 @@ struct VideoSourceSelectionViewModelTests {
         #expect(vm.showPhotoPicker == true)
         #expect(vm.photoPermissionDenied == false)
     }
+
+    // MARK: - handlePickerSelection nil guard
+
+    @Test("nil item → no-op: isProcessing and errorMessage unchanged")
+    func nilPickerItemIsNoOp() {
+        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: []))
+        vm.handlePickerSelection(nil)
+        #expect(vm.isProcessing == false)
+        #expect(vm.errorMessage == nil)
+    }
+
+    // MARK: - handleExport
+
+    @Test("export error → generic error message, isProcessing cleared")
+    func handleExportErrorSetsMessage() async {
+        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: []))
+        vm.isProcessing = true
+        await vm.handleExport { throw MockError.failed }
+        #expect(vm.errorMessage == "Could not analyze video. Try again.")
+        #expect(vm.isProcessing == false)
+    }
+
+    @Test("export success with serves → no error, isProcessing cleared")
+    func handleExportSuccessWithServes() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: [makeFrames()]))
+        vm.isProcessing = true
+        await vm.handleExport { url }
+        #expect(vm.errorMessage == nil)
+        #expect(vm.isProcessing == false)
+    }
+
+    @Test("export success with zero serves → no-serves error, isProcessing cleared")
+    func handleExportSuccessZeroServes() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: []))
+        vm.isProcessing = true
+        await vm.handleExport { url }
+        #expect(vm.errorMessage == "No serves detected. Try a different clip.")
+        #expect(vm.isProcessing == false)
+    }
 }
 
 // MARK: - Helpers

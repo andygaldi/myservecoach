@@ -32,6 +32,10 @@ Video input selection screen presented at the start of an Assessment session. Th
 
 ## Phase 6 — Segmentation Calibration ⬜
 
+> **Refactoring prerequisites (complete before adding new Phase 6 features):**
+> - Extract a shared `PermissionChecking` protocol (or similar) and unify the permission-checking pattern between `CameraViewModel` and `VideoSourceSelectionViewModel` — currently both have slightly different injectable closure shapes.
+> - Unify pipeline execution: `CameraViewModel` and `VideoSourceSelectionViewModel` both drive `PoseAnalysisPipeline` with similar Task+error-handling patterns; extract a shared coordinator to avoid drift.
+
 Validate and tune the heuristic phase detection logic against real serve footage. Input videos come from two sources: clips recorded directly with the iOS app and external serve videos imported via the Phase 5 Photos library picker — both go through the same on-device Vision pose estimation pipeline. Export the keypoint JSON from the Xcode console and the video file from the device (AirDrop or Files app). A Python script in `backend/tools/` takes those two files, extracts frame images using OpenCV at the timestamps in the keypoint JSON, and produces an HTML report showing thumbnails of every sampled frame alongside highlighted images of the frame identified for each phase (trophy pose, racket drop, contact). No pose estimation happens in the Python tool — it only handles frame extraction and layout. Compare the report against the source video and adjust `phases.py` heuristics until all three phases land on the visually correct frames across a representative set of serves.
 
 ## Phase 7 — Rule Calibration ⬜

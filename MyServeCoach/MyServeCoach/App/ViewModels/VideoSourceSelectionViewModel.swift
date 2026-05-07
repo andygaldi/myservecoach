@@ -48,14 +48,20 @@ final class VideoSourceSelectionViewModel {
         isProcessing = true
         Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                let url = try await self.exporter.export(item)
-                await self.runPipeline(on: url)
-            } catch {
-                self.errorMessage = "Could not analyze video. Try again."
-                print("[VideoSourceSelection] Export error: \(error)")
-                self.isProcessing = false
-            }
+            await self.handleExport { try await self.exporter.export(item) }
+        }
+    }
+
+    // Internal so tests can exercise the export→pipeline path without a real PhotosPickerItem.
+    @MainActor
+    func handleExport(_ action: @escaping () async throws -> URL) async {
+        do {
+            let url = try await action()
+            await runPipeline(on: url)
+        } catch {
+            errorMessage = "Could not analyze video. Try again."
+            print("[VideoSourceSelection] Export error: \(error)")
+            isProcessing = false
         }
     }
 
