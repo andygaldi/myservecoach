@@ -19,13 +19,20 @@ final class VideoSourceSelectionViewModel {
     private let exporter = LibraryVideoExporter()
     private let pipeline: any PoseAnalyzing
 
-    init(pipeline: any PoseAnalyzing = PoseAnalysisPipeline()) {
+    @ObservationIgnored
+    private let authorizationStatus: (PHAccessLevel) -> PHAuthorizationStatus
+
+    init(
+        pipeline: any PoseAnalyzing = PoseAnalysisPipeline(),
+        authorizationStatus: @escaping (PHAccessLevel) -> PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for:)
+    ) {
         self.pipeline = pipeline
+        self.authorizationStatus = authorizationStatus
     }
 
     func handleLibraryButtonTap() {
         errorMessage = nil
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        let status = authorizationStatus(.readWrite)
         switch status {
         case .denied, .restricted:
             photoPermissionDenied = true

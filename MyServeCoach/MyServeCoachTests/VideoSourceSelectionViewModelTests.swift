@@ -1,4 +1,5 @@
 import Foundation
+import Photos
 import Testing
 @testable import MyServeCoach
 
@@ -84,13 +85,68 @@ struct VideoSourceSelectionViewModelTests {
 
     @Test("handleLibraryButtonTap clears errorMessage")
     func libraryButtonTapClearsError() {
-        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: []))
+        let vm = makeVM(authStatus: .authorized)
         vm.errorMessage = "previous error"
 
         vm.handleLibraryButtonTap()
 
         #expect(vm.errorMessage == nil)
     }
+
+    // MARK: - handleLibraryButtonTap permission branches
+
+    @Test("denied → photoPermissionDenied set, picker not shown")
+    func deniedStatusSetsPermissionDenied() {
+        let vm = makeVM(authStatus: .denied)
+        vm.handleLibraryButtonTap()
+        #expect(vm.photoPermissionDenied == true)
+        #expect(vm.showPhotoPicker == false)
+    }
+
+    @Test("restricted → photoPermissionDenied set, picker not shown")
+    func restrictedStatusSetsPermissionDenied() {
+        let vm = makeVM(authStatus: .restricted)
+        vm.handleLibraryButtonTap()
+        #expect(vm.photoPermissionDenied == true)
+        #expect(vm.showPhotoPicker == false)
+    }
+
+    @Test("authorized → picker shown, photoPermissionDenied cleared")
+    func authorizedStatusShowsPicker() {
+        let vm = makeVM(authStatus: .authorized)
+        vm.photoPermissionDenied = true  // pre-existing denial from a previous tap
+
+        vm.handleLibraryButtonTap()
+
+        #expect(vm.showPhotoPicker == true)
+        #expect(vm.photoPermissionDenied == false)
+    }
+
+    @Test("limited → picker shown, photoPermissionDenied cleared")
+    func limitedStatusShowsPicker() {
+        let vm = makeVM(authStatus: .limited)
+        vm.handleLibraryButtonTap()
+        #expect(vm.showPhotoPicker == true)
+        #expect(vm.photoPermissionDenied == false)
+    }
+
+    @Test("notDetermined → picker shown (PhotosPicker requests access itself)")
+    func notDeterminedStatusShowsPicker() {
+        let vm = makeVM(authStatus: .notDetermined)
+        vm.handleLibraryButtonTap()
+        #expect(vm.showPhotoPicker == true)
+        #expect(vm.photoPermissionDenied == false)
+    }
+}
+
+// MARK: - Helpers
+
+@MainActor
+private func makeVM(authStatus: PHAuthorizationStatus) -> VideoSourceSelectionViewModel {
+    VideoSourceSelectionViewModel(
+        pipeline: MockPipeline(segments: []),
+        authorizationStatus: { _ in authStatus }
+    )
 }
 
 // MARK: - Helpers
