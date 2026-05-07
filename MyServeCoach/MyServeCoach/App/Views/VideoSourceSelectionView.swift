@@ -41,8 +41,19 @@ struct VideoSourceSelectionView: View {
                     if viewModel.photoPermissionDenied {
                         photoPermissionDeniedBanner
                     }
+
+                    if let message = viewModel.errorMessage {
+                        errorBanner(message: message)
+                    }
                 }
                 .padding(.horizontal)
+                .disabled(viewModel.isProcessing)
+
+                if viewModel.isProcessing {
+                    ProgressView("Analyzing…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
 
                 Spacer()
             }
@@ -78,6 +89,18 @@ struct VideoSourceSelectionView: View {
         .foregroundStyle(.white)
         .padding()
         .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func errorBanner(message: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(message)
+                .font(.subheadline)
+            Spacer()
+        }
+        .foregroundStyle(.white)
+        .padding()
+        .background(.orange.opacity(0.9), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func sourceButton(
