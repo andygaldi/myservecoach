@@ -1,7 +1,9 @@
 import SwiftUI
+import PhotosUI
 
 struct VideoSourceSelectionView: View {
     @State private var viewModel = VideoSourceSelectionViewModel()
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         NavigationStack {
@@ -33,8 +35,12 @@ struct VideoSourceSelectionView: View {
                         title: "Choose from Library",
                         subtitle: "Pick an existing clip",
                         icon: "photo.on.rectangle.angled",
-                        action: { viewModel.showPhotoPicker = true }
+                        action: { viewModel.handleLibraryButtonTap() }
                     )
+
+                    if viewModel.photoPermissionDenied {
+                        photoPermissionDeniedBanner
+                    }
                 }
                 .padding(.horizontal)
 
@@ -45,7 +51,33 @@ struct VideoSourceSelectionView: View {
             .navigationDestination(isPresented: $viewModel.navigateToRecord) {
                 RecordServeView()
             }
+            .photosPicker(
+                isPresented: $viewModel.showPhotoPicker,
+                selection: $viewModel.photoPickerItem,
+                matching: .videos
+            )
+            .onChange(of: viewModel.photoPickerItem) { _, newItem in
+                viewModel.handlePickerSelection(newItem)
+            }
         }
+    }
+
+    private var photoPermissionDeniedBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "photo.fill")
+            Text("Photos access denied.")
+                .font(.subheadline)
+            Spacer()
+            Button("Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    openURL(url)
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(.white)
+        .padding()
+        .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func sourceButton(
