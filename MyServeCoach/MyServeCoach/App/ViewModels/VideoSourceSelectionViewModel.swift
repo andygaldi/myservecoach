@@ -9,6 +9,10 @@ final class VideoSourceSelectionViewModel {
     var showPhotoPicker = false
     var photoPickerItem: PhotosPickerItem?
     var photoPermissionDenied = false
+    var isProcessing = false
+
+    private let exporter = LibraryVideoExporter()
+    private let pipeline = PoseAnalysisPipeline()
 
     func handleLibraryButtonTap() {
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -22,8 +26,19 @@ final class VideoSourceSelectionViewModel {
     }
 
     func handlePickerSelection(_ item: PhotosPickerItem?) {
-        guard item != nil else { return }
-        // stub — asset export implemented in Group 3
-        print("[VideoSourceSelection] PhotosPickerItem received; export pending")
+        guard let item else { return }
+        isProcessing = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let url = try await self.exporter.export(item)
+                defer { try? FileManager.default.removeItem(at: url) }
+                _ = try await self.pipeline.analyze(videoURL: url)
+            } catch {
+                // Group 4 surfaces error state
+                print("[VideoSourceSelection] Pipeline error: \(error)")
+            }
+            self.isProcessing = false
+        }
     }
 }
