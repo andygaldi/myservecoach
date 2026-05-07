@@ -1,19 +1,27 @@
 import Foundation
 import Observation
+import SwiftUI   // required: PhotosPickerItem lives in _PhotosUI_SwiftUI overlay on iOS 26+
 import PhotosUI
 import Photos
 
+// PhotosPickerItem is kept in @State in VideoSourceSelectionView to avoid
+// @Observable macro generating a synthetic file that can't resolve PhotosUI types.
+
+@MainActor
 @Observable
 final class VideoSourceSelectionViewModel {
     var navigateToRecord = false
     var showPhotoPicker = false
-    var photoPickerItem: PhotosPickerItem?
     var photoPermissionDenied = false
     var isProcessing = false
     var errorMessage: String?
 
     private let exporter = LibraryVideoExporter()
-    private let pipeline = PoseAnalysisPipeline()
+    private let pipeline: any PoseAnalyzing
+
+    init(pipeline: any PoseAnalyzing = PoseAnalysisPipeline()) {
+        self.pipeline = pipeline
+    }
 
     func handleLibraryButtonTap() {
         errorMessage = nil
@@ -30,22 +38,33 @@ final class VideoSourceSelectionViewModel {
     func handlePickerSelection(_ item: PhotosPickerItem?) {
         guard let item else { return }
         errorMessage = nil
-        photoPickerItem = nil  // allow re-selection of the same clip next time
         isProcessing = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let url = try await self.exporter.export(item)
-                defer { try? FileManager.default.removeItem(at: url) }
-                let segments = try await self.pipeline.analyze(videoURL: url)
-                if segments.isEmpty {
-                    self.errorMessage = "No serves detected. Try a different clip."
-                }
+                await self.runPipeline(on: url)
             } catch {
                 self.errorMessage = "Could not analyze video. Try again."
-                print("[VideoSourceSelection] Pipeline error: \(error)")
+                print("[VideoSourceSelection] Export error: \(error)")
+                self.isProcessing = false
             }
-            self.isProcessing = false
         }
+    }
+
+    // Internal so tests can exercise the pipeline path directly.
+    @MainActor
+    func runPipeline(on url: URL) async {
+        do {
+            defer { try? FileManager.default.removeItem(at: url) }
+            let segments = try await pipeline.analyze(videoURL: url)
+            if segments.isEmpty {
+                errorMessage = "No serves detected. Try a different clip."
+            }
+        } catch {
+            errorMessage = "Could not analyze video. Try again."
+            print("[VideoSourceSelection] Pipeline error: \(error)")
+        }
+        isProcessing = false
     }
 }

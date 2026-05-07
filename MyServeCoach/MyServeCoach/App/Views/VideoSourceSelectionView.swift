@@ -3,6 +3,7 @@ import PhotosUI
 
 struct VideoSourceSelectionView: View {
     @State private var viewModel = VideoSourceSelectionViewModel()
+    @State private var pickerItem: PhotosPickerItem?
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -64,11 +65,12 @@ struct VideoSourceSelectionView: View {
             }
             .photosPicker(
                 isPresented: $viewModel.showPhotoPicker,
-                selection: $viewModel.photoPickerItem,
+                selection: $pickerItem,
                 matching: .videos
             )
-            .onChange(of: viewModel.photoPickerItem) { _, newItem in
+            .onChange(of: pickerItem) { _, newItem in
                 viewModel.handlePickerSelection(newItem)
+                pickerItem = nil  // allow re-selecting the same clip
             }
         }
     }
