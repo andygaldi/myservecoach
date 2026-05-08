@@ -7,7 +7,7 @@
 | Language | Swift 6 | Strict concurrency |
 | UI | SwiftUI | MVVM architecture; views stay thin |
 | Persistence | SwiftData | Local session history; no iCloud sync in MVP |
-| Video capture | AVFoundation | `AVCaptureSession` for recording; portrait lock |
+| Video capture | AVFoundation | `AVCaptureSession` for recording; portrait lock; MVP requires open-side camera placement (perpendicular to serve direction) |
 | Video import | PhotosUI | `PhotosPicker` (iOS 16+); user selects existing video from Photos library for Assessment; requests video asset only, avoiding full library permission |
 | Pose estimation | Apple Vision | `VNDetectHumanBodyPoseRequest`; on-device, no API cost; runs on recorded frames during analysis and on the live camera feed for the pre-recording confidence check |
 | Serve segmentation | Apple Vision | On-device; detects serve boundaries via pose velocity / keypoint activity within `VNDetectHumanBodyPoseRequest` output |
@@ -46,4 +46,5 @@ iOS app and FastAPI backend live in the same repository (monorepo). Backend code
 - **Rule-based engine first**: Deterministic coaching output keeps the MVP debuggable and fast. LLM layer added later as an enhancement, not a dependency. Rule thresholds and phase detection heuristics are validated against real serve video (Phases 6–7) before the iOS app depends on them, ensuring cues reflect actual biomechanics rather than synthetic assumptions.
 - **Local persistence only**: SwiftData stores session history on-device. No user account or cloud sync in MVP.
 - **No authentication in MVP**: The app is local-first; no login required until cloud sync or social features are introduced.
+- **Single recording angle (MVP)**: Segmentation heuristics and rule thresholds are calibrated for the open-side view only (phone perpendicular to the serve direction, player's hitting side visible). Behind-server and closed-side angles require separate heuristics and rule sets; multi-angle support is deferred to Phase 17.
 - **Audible feedback is on-device only**: AVSpeechSynthesizer speaks the per-serve result in the Set Goal workflow. No internet required for the spoken cue itself; only the analysis POST needs connectivity.

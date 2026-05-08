@@ -83,3 +83,7 @@ Two related features sharing the same skeleton-rendering layer:
 **Results-screen overlay**: Draw the detected skeleton on keyframe thumbnails in the results screen using SwiftUI `Canvas` or Core Graphics, giving players visual confirmation that pose detection worked correctly on the recorded footage.
 
 Both surfaces share the same joint-drawing component; the confidence check adds the live-feed sampling loop and the threshold-based warning UI on top.
+
+## Phase 17 — Multi-Angle Support ⬜
+
+Extend the pipeline to support recording from behind the server and from the closed side, in addition to the MVP open-side angle. Each angle requires its own segmentation heuristics (keypoint velocity patterns differ by view) and its own rule set (e.g., toss height and leg drive are visible from the side but not from behind; shoulder rotation reads differently per angle). A new angle-selection step is added to the session setup flow so the user declares their camera position before recording. Phase 6/7 calibration tools are reused to validate heuristics and thresholds for each new angle against real serve footage.
