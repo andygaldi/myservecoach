@@ -84,6 +84,10 @@ Two related features sharing the same skeleton-rendering layer:
 
 Both surfaces share the same joint-drawing component; the confidence check adds the live-feed sampling loop and the threshold-based warning UI on top.
 
-## Phase 17 — Multi-Angle Support ⬜
+## Phase 17 — Serve-Type Awareness ⬜
+
+Add a serve-type selection step to the session setup flow (flat, slice, or kick). The selection is passed to the backend alongside keypoints; the rule engine applies serve-type-specific thresholds and cues rather than a single universal rule set. Each serve type has meaningfully different biomechanical targets — kick serves demand a pronounced leg drive and a toss further behind the head, slice requires a toss to the right (for right-handers) and a brushing contact path, flat prioritizes maximum pronation and a high contact point. `rules.json` is restructured to support per-type threshold variants, and the Phase 6/7 calibration tools are rerun against footage of each serve type to validate the new thresholds.
+
+## Phase 18 — Multi-Angle Support ⬜
 
 Extend the pipeline to support recording from behind the server and from the closed side, in addition to the MVP open-side angle. Each angle requires its own segmentation heuristics (keypoint velocity patterns differ by view) and its own rule set (e.g., toss height and leg drive are visible from the side but not from behind; shoulder rotation reads differently per angle). A new angle-selection step is added to the session setup flow so the user declares their camera position before recording. Phase 6/7 calibration tools are reused to validate heuristics and thresholds for each new angle against real serve footage.
