@@ -53,13 +53,13 @@ def _make_keypoints_log(serves: list[list[dict]]) -> str:
 # Timestamps map to video frames at 30 fps (frame 0 = t=0.0, frame 1 = t=0.033, …).
 _T = [i / 30.0 for i in range(10)]
 
-def _j(lw_y, ls_y, rw_y, rh_y, conf=0.9):
+def _j(lw_y, ls_y, rw_y, rh_y, conf=0.9, rw_x=0.7):
     """Build a joints dict for a single frame using real Vision joint names."""
     return {
-        "left_hand_joint":        {"x": 0.3, "y": lw_y, "confidence": conf},
-        "left_shoulder_1_joint":  {"x": 0.4, "y": ls_y, "confidence": conf},
-        "right_hand_joint":       {"x": 0.7, "y": rw_y, "confidence": conf},
-        "right_upLeg_joint":      {"x": 0.5, "y": rh_y, "confidence": conf},
+        "left_hand_joint":        {"x": 0.3,  "y": lw_y, "confidence": conf},
+        "left_shoulder_1_joint":  {"x": 0.4,  "y": ls_y, "confidence": conf},
+        "right_hand_joint":       {"x": rw_x, "y": rw_y, "confidence": conf},
+        "right_upLeg_joint":      {"x": 0.5,  "y": rh_y, "confidence": conf},
     }
 
 # Frame-by-frame serve:
@@ -72,9 +72,9 @@ def _j(lw_y, ls_y, rw_y, rh_y, conf=0.9):
 _SERVE_FRAMES = [
     {"timestamp": _T[0], "joints": _j(lw_y=0.20, ls_y=0.65, rw_y=0.50, rh_y=0.30)},  # pre-serve
     {"timestamp": _T[1], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.50, rh_y=0.30)},  # trophy (idx 1)
-    {"timestamp": _T[2], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.30, rh_y=0.30)},
-    {"timestamp": _T[3], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.15, rh_y=0.30)},
-    {"timestamp": _T[4], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.05, rh_y=0.30)},  # drop (idx 4)
+    {"timestamp": _T[2], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.30, rh_y=0.30, rw_x=0.3)},
+    {"timestamp": _T[3], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.15, rh_y=0.30, rw_x=0.3)},
+    {"timestamp": _T[4], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.05, rh_y=0.30, rw_x=0.3)},  # drop (idx 4)
     {"timestamp": _T[5], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.30, rh_y=0.30)},
     {"timestamp": _T[6], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.55, rh_y=0.30)},
     {"timestamp": _T[7], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.70, rh_y=0.30)},

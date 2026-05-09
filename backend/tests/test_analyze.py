@@ -12,14 +12,16 @@ VALID_FRAME = {
 }
 
 # Trophy pose frame with a straight (180°) hitting arm — elbow outside 80–110°.
-# Phase detection finds trophy (toss wrist above shoulder, wrists above hip).
-# Rule trophy_racket_elbow_flexion then fires because 180° is outside [80, 110].
+# Phase detection finds trophy (toss wrist above shoulder, wrists above hip,
+# wrist above elbow). Rule trophy_racket_elbow_flexion fires because 180° ∉ [80,110].
+# Points are arranged vertically (shoulder→elbow→wrist collinear) so 180° is
+# preserved while wrist y (0.7) is above elbow y (0.5).
 BAD_ELBOW_FRAME = {
     "timestamp": 0.0,
     "keypoints": {
-        "right_shoulder": {"x": 0.3, "y": 0.5, "confidence": 0.9},
+        "right_shoulder": {"x": 0.5, "y": 0.3, "confidence": 0.9},
         "right_elbow":    {"x": 0.5, "y": 0.5, "confidence": 0.9},
-        "right_wrist":    {"x": 0.7, "y": 0.5, "confidence": 0.9},
+        "right_wrist":    {"x": 0.5, "y": 0.7, "confidence": 0.9},
         "right_hip":      {"x": 0.5, "y": 0.3, "confidence": 0.9},
         "left_wrist":     {"x": 0.3, "y": 0.8, "confidence": 0.9},
         "left_shoulder":  {"x": 0.4, "y": 0.65, "confidence": 0.9},
@@ -27,16 +29,17 @@ BAD_ELBOW_FRAME = {
 }
 
 # A 3-frame sequence where all rules pass — trophy detected, no cues fired.
-# Trophy: toss wrist above shoulder, wrists above hip, elbow 90° ∈ [80,110]
-# Racket drop: wrist below hip
+# Trophy: toss wrist above shoulder, wrists above hip, wrist above elbow, elbow 90° ∈ [80,110]
+#   shoulder(0.8,0.5)→elbow(0.6,0.5)→wrist(0.6,0.7): vectors (0.2,0) and (0,0.2) → 90°
+# Racket drop: wrist x=0.3 left of hip x=0.5 (backswing), wrist y=0.1 below hip y=0.3
 # Contact: collinear → 180° ≥ 150°, wrist y=0.9 above shoulder y=0.5
 CLEAN_SERVE_FRAMES = [
     {
         "timestamp": 0.0,
         "keypoints": {
-            "right_shoulder": {"x": 0.6, "y": 0.7, "confidence": 0.9},
+            "right_shoulder": {"x": 0.8, "y": 0.5, "confidence": 0.9},
             "right_elbow":    {"x": 0.6, "y": 0.5, "confidence": 0.9},
-            "right_wrist":    {"x": 0.8, "y": 0.5, "confidence": 0.9},
+            "right_wrist":    {"x": 0.6, "y": 0.7, "confidence": 0.9},
             "right_hip":      {"x": 0.5, "y": 0.3, "confidence": 0.9},
             "left_wrist":     {"x": 0.3, "y": 0.8, "confidence": 0.9},
             "left_shoulder":  {"x": 0.4, "y": 0.65, "confidence": 0.9},
@@ -45,7 +48,7 @@ CLEAN_SERVE_FRAMES = [
     {
         "timestamp": 1.0,
         "keypoints": {
-            "right_wrist": {"x": 0.8, "y": 0.1, "confidence": 0.9},
+            "right_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9},
             "right_hip":   {"x": 0.5, "y": 0.3, "confidence": 0.9},
         },
     },

@@ -9,11 +9,11 @@ from conftest import make_frame
 #   right_hip y=0.3;  left_wrist y=0.8 > 0.3, right_wrist y=0.5 > 0.3  → both wrists above hip
 #   (elbow geometry included for rule tests but is not used by phase detection)
 TROPHY_KPS = {
-    "right_shoulder": {"x": 0.6, "y": 0.7, "confidence": 0.9},
-    "right_elbow":    {"x": 0.6, "y": 0.5, "confidence": 0.9},
-    "right_wrist":    {"x": 0.8, "y": 0.5, "confidence": 0.9},
-    "right_hip":      {"x": 0.5, "y": 0.3, "confidence": 0.9},
-    "left_wrist":     {"x": 0.3, "y": 0.8, "confidence": 0.9},
+    "right_shoulder": {"x": 0.6, "y": 0.7,  "confidence": 0.9},
+    "right_elbow":    {"x": 0.6, "y": 0.5,  "confidence": 0.9},
+    "right_wrist":    {"x": 0.8, "y": 0.7,  "confidence": 0.9},  # wrist above elbow (y 0.7 > 0.5)
+    "right_hip":      {"x": 0.5, "y": 0.3,  "confidence": 0.9},
+    "left_wrist":     {"x": 0.3, "y": 0.8,  "confidence": 0.9},
     "left_shoulder":  {"x": 0.4, "y": 0.65, "confidence": 0.9},
 }
 
@@ -74,7 +74,7 @@ def test_low_wrist_before_trophy_is_not_racket_drop():
                      "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},   # fails trophy
                      "right_wrist": {"x": 0.8, "y": 0.02, "confidence": 0.9}}, 0.0)  # lowest wrist
     f1 = make_frame(TROPHY_KPS, 1.0)  # trophy; right_wrist y=0.5
-    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.1, "confidence": 0.9}}, 2.0)  # drop (post-trophy minimum)
+    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9}}, 2.0)  # drop (post-trophy minimum, wrist left of hip)
     f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.9, "confidence": 0.9}}, 3.0)  # contact
 
     result = detect_phases([f0, f1, f2, f3])
@@ -103,7 +103,7 @@ def test_high_wrist_before_racket_drop_is_not_contact():
     f0 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}}, 0.0)
     f1 = make_frame(TROPHY_KPS, 1.0)  # trophy
     f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.85, "confidence": 0.9}}, 2.0)  # high wrist pre-drop
-    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}}, 3.0)  # racket drop
+    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.3, "y": 0.05, "confidence": 0.9}}, 3.0)  # racket drop (wrist left of hip)
     f4 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.95, "confidence": 0.9}}, 4.0)  # contact
 
     result = detect_phases([f0, f1, f2, f3, f4])
@@ -126,7 +126,7 @@ def test_no_racket_drop_contact_searches_full_sequence():
 
 def test_no_frames_after_racket_drop_gives_no_contact():
     f0 = make_frame(TROPHY_KPS, 0.0)  # trophy
-    f1 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}}, 1.0)  # drop (last frame)
+    f1 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.3, "y": 0.05, "confidence": 0.9}}, 1.0)  # drop (last frame, wrist left of hip)
     result = detect_phases([f0, f1])
     assert result[ServePhase.racket_drop] is f1
     assert result[ServePhase.contact] is None
@@ -137,10 +137,48 @@ def test_no_frames_after_racket_drop_gives_no_contact():
 def test_full_sequence_resolves_all_three_phases():
     f0 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9}}, 0.0)  # pre-serve
     f1 = make_frame(TROPHY_KPS, 1.0)                                                                # trophy
-    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}}, 2.0) # racket drop
+    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.3, "y": 0.05, "confidence": 0.9}}, 2.0) # racket drop (wrist left of hip)
     f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.95, "confidence": 0.9}}, 3.0) # contact
 
     result = detect_phases([f0, f1, f2, f3])
     assert result[ServePhase.trophy_pose] is f1
     assert result[ServePhase.racket_drop] is f2
     assert result[ServePhase.contact] is f3
+
+
+# --- New constraints from calibration against real footage ---
+
+def test_trophy_rejected_when_hitting_wrist_below_elbow():
+    # Elbow y=0.5, wrist y=0.4 → wrist below elbow → not a valid trophy pose
+    f = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.4, "confidence": 0.9}}, 0.0)
+    result = detect_phases([f])
+    assert result[ServePhase.trophy_pose] is None
+
+
+def test_trophy_passes_without_elbow_data():
+    # No elbow keypoint — constraint is skipped, frame qualifies on other criteria
+    kps = {k: v for k, v in TROPHY_KPS.items() if k != "right_elbow"}
+    f = make_frame(kps, 0.0)
+    result = detect_phases([f])
+    assert result[ServePhase.trophy_pose] is f
+
+
+def test_racket_drop_skips_frames_right_of_hip():
+    # f1 has lower wrist y but is to the right of the hip → not eligible for drop
+    # f2 has higher wrist y but is to the left of the hip → chosen as drop
+    f0 = make_frame(TROPHY_KPS, 0.0)
+    f1 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.02, "confidence": 0.9}}, 1.0)  # lower y, right of hip
+    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.3, "y": 0.10, "confidence": 0.9}}, 2.0)  # higher y, left of hip
+
+    result = detect_phases([f0, f1, f2])
+    assert result[ServePhase.racket_drop] is f2  # f1 excluded by x constraint
+
+
+def test_racket_drop_found_when_hip_x_unavailable():
+    # Hip keypoint absent → x constraint cannot be applied → frame is still eligible
+    kps_no_hip = {k: v for k, v in TROPHY_KPS.items() if k != "right_hip"}
+    f0 = make_frame(TROPHY_KPS, 0.0)   # trophy (hip present here)
+    f1 = make_frame({**kps_no_hip, "right_wrist": {"x": 0.8, "y": 0.05, "confidence": 0.9}}, 1.0)
+
+    result = detect_phases([f0, f1])
+    assert result[ServePhase.racket_drop] is f1
