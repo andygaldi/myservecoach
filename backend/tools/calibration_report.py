@@ -108,26 +108,31 @@ def _extract_json_objects(text: str) -> list[dict]:
 # Joint name translation
 # ---------------------------------------------------------------------------
 
-def _normalize_joint_name(vision_name: str) -> str:
-    """Translate a Vision framework joint name to the backend's simplified name.
-
-    Examples:
-        "left_wrist_joint"      → "left_wrist"
-        "left_shoulder_1_joint" → "left_shoulder"
-        "left_elbow_1_joint"    → "left_elbow"
-        "left_upLeg_joint"      → "left_hip"
-        "right_upLeg_joint"     → "right_hip"
-    """
-    name = vision_name
-    name = re.sub(r"_1_joint$", "", name)   # shoulder_1_joint, elbow_1_joint, neck_1_joint
-    name = re.sub(r"_joint$", "", name)      # wrist_joint, knee_joint, etc.
-    name = name.replace("upLeg", "hip")      # upLeg → hip
-    return name
+# Vision framework joint name → backend simplified name.
+# Derived from inspecting real device console output: Vision uses hand/forearm
+# rather than wrist/elbow, and upLeg for hip.
+_VISION_TO_BACKEND: dict[str, str] = {
+    "left_hand_joint":        "left_wrist",
+    "right_hand_joint":       "right_wrist",
+    "left_forearm_joint":     "left_elbow",
+    "right_forearm_joint":    "right_elbow",
+    "left_shoulder_1_joint":  "left_shoulder",
+    "right_shoulder_1_joint": "right_shoulder",
+    "left_upLeg_joint":       "left_hip",
+    "right_upLeg_joint":      "right_hip",
+    "left_leg_joint":         "left_knee",
+    "right_leg_joint":        "right_knee",
+    "left_foot_joint":        "left_ankle",
+    "right_foot_joint":       "right_ankle",
+    "neck_1_joint":           "neck",
+    "head_joint":             "head",
+    "root":                   "root",
+}
 
 
 def normalize_joints(ios_joints: dict) -> dict:
     """Remap a PoseFrame 'joints' dict (Vision names) to backend keypoint names."""
-    return {_normalize_joint_name(k): v for k, v in ios_joints.items()}
+    return {_VISION_TO_BACKEND.get(k, k): v for k, v in ios_joints.items()}
 
 
 # ---------------------------------------------------------------------------

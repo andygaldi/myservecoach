@@ -54,11 +54,11 @@ def _make_keypoints_log(serves: list[list[dict]]) -> str:
 _T = [i / 30.0 for i in range(10)]
 
 def _j(lw_y, ls_y, rw_y, rh_y, conf=0.9):
-    """Build a joints dict for a single frame."""
+    """Build a joints dict for a single frame using real Vision joint names."""
     return {
-        "left_wrist_joint":       {"x": 0.3, "y": lw_y, "confidence": conf},
+        "left_hand_joint":        {"x": 0.3, "y": lw_y, "confidence": conf},
         "left_shoulder_1_joint":  {"x": 0.4, "y": ls_y, "confidence": conf},
-        "right_wrist_joint":      {"x": 0.7, "y": rw_y, "confidence": conf},
+        "right_hand_joint":       {"x": 0.7, "y": rw_y, "confidence": conf},
         "right_upLeg_joint":      {"x": 0.5, "y": rh_y, "confidence": conf},
     }
 
@@ -132,23 +132,27 @@ class TestParseConsoleLog:
 
 class TestNormalizeJoints:
 
-    def test_wrist_joint_stripped(self):
-        result = normalize_joints({"left_wrist_joint": {"x": 0.1, "y": 0.2, "confidence": 0.9}})
+    def test_hand_joint_maps_to_wrist(self):
+        result = normalize_joints({"left_hand_joint": {"x": 0.1, "y": 0.2, "confidence": 0.9}})
         assert "left_wrist" in result
-        assert "left_wrist_joint" not in result
+        assert "left_hand_joint" not in result
 
-    def test_shoulder_1_joint_stripped(self):
+    def test_shoulder_1_joint_maps_to_shoulder(self):
         result = normalize_joints({"left_shoulder_1_joint": {"x": 0.1, "y": 0.2, "confidence": 0.9}})
         assert "left_shoulder" in result
 
-    def test_upLeg_becomes_hip(self):
+    def test_upLeg_joint_maps_to_hip(self):
         result = normalize_joints({"right_upLeg_joint": {"x": 0.5, "y": 0.3, "confidence": 0.9}})
         assert "right_hip" in result
 
+    def test_forearm_joint_maps_to_elbow(self):
+        result = normalize_joints({"right_forearm_joint": {"x": 0.5, "y": 0.4, "confidence": 0.9}})
+        assert "right_elbow" in result
+
     def test_values_preserved(self):
-        joints = {"left_wrist_joint": {"x": 0.3, "y": 0.7, "confidence": 0.9}}
+        joints = {"left_hand_joint": {"x": 0.3, "y": 0.7, "confidence": 0.9}}
         result = normalize_joints(joints)
-        assert result["left_wrist"] == joints["left_wrist_joint"]
+        assert result["left_wrist"] == joints["left_hand_joint"]
 
 
 # ---------------------------------------------------------------------------
