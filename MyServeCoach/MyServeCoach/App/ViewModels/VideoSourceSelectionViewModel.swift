@@ -2,7 +2,6 @@ import Foundation
 import Observation
 import SwiftUI   // required: PhotosPickerItem lives in _PhotosUI_SwiftUI overlay on iOS 26+
 import PhotosUI
-import Photos
 
 // PhotosPickerItem is kept in @State in VideoSourceSelectionView to avoid
 // @Observable macro generating a synthetic file that can't resolve PhotosUI types.
@@ -17,29 +16,24 @@ final class VideoSourceSelectionViewModel {
     var errorMessage: String?
 
     private let exporter = LibraryVideoExporter()
-    private let pipeline: any PoseAnalyzing
+    private let coordinator: PipelineCoordinator
 
     @ObservationIgnored
-    private let authorizationStatus: (PHAccessLevel) -> PHAuthorizationStatus
+    private let permissionChecker: any PermissionChecking
 
     init(
-        pipeline: any PoseAnalyzing = PoseAnalysisPipeline(),
-        authorizationStatus: @escaping (PHAccessLevel) -> PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for:)
+        coordinator: PipelineCoordinator = PipelineCoordinator(),
+        permissionChecker: any PermissionChecking = PhotoLibraryPermissionChecker()
     ) {
-        self.pipeline = pipeline
-        self.authorizationStatus = authorizationStatus
+        self.coordinator = coordinator
+        self.permissionChecker = permissionChecker
     }
 
-    func handleLibraryButtonTap() {
+    func handleLibraryButtonTap() async {
         errorMessage = nil
-        let status = authorizationStatus(.readWrite)
-        switch status {
-        case .denied, .restricted:
-            photoPermissionDenied = true
-        default:
-            photoPermissionDenied = false
-            showPhotoPicker = true
-        }
+        let granted = await permissionChecker.checkPermission()
+        photoPermissionDenied = !granted
+        if granted { showPhotoPicker = true }
     }
 
     func handlePickerSelection(_ item: PhotosPickerItem?) {
@@ -70,7 +64,7 @@ final class VideoSourceSelectionViewModel {
     func runPipeline(on url: URL) async {
         do {
             defer { try? FileManager.default.removeItem(at: url) }
-            let segments = try await pipeline.analyze(videoURL: url)
+            let segments = try await coordinator.run(videoURL: url)
             if segments.isEmpty {
                 errorMessage = "No serves detected. Try a different clip."
             }
