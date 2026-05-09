@@ -26,7 +26,7 @@ FastAPI project at `backend/` in the same repo as the iOS app. Implements a `POS
 
 Implement `rules.json` threshold config and angle computation utilities. Serve phase detection (trophy pose, racket drop, contact point). Unit-tested with pytest. Backend now returns real cues instead of hardcoded ones.
 
-## Phase 5 — Video Library Import ⬜
+## Phase 5 — Video Library Import ✅
 
 Video input selection screen presented at the start of an Assessment session. The user chooses between recording a new clip live or picking an existing video from their Photos library. Selecting a library video feeds it through the same Phase 2 pipeline (frame sampling → pose estimation → serve segmentation) and into the normal assessment flow — results and persistence are identical regardless of input source. Uses SwiftUI's `PhotosPicker` (iOS 16+) to request only the video asset, avoiding a full Photos library permission prompt.
 
