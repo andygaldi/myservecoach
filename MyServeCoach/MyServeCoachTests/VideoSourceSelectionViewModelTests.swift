@@ -49,7 +49,7 @@ struct VideoSourceSelectionViewModelTests {
 
     @Test("zero segments → errorMessage set, isProcessing cleared")
     func zeroServesTriggersError() async {
-        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: []))
+        let vm = makeVM(pipeline: MockPipeline(segments: []))
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-\(UUID().uuidString).mov")
 
@@ -61,7 +61,7 @@ struct VideoSourceSelectionViewModelTests {
 
     @Test("non-empty segments → no error, isProcessing cleared")
     func servesDetectedNoError() async {
-        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: [makeFrames()]))
+        let vm = makeVM(pipeline: MockPipeline(segments: [makeFrames()]))
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-\(UUID().uuidString).mov")
 
@@ -73,7 +73,7 @@ struct VideoSourceSelectionViewModelTests {
 
     @Test("pipeline failure → generic error message, isProcessing cleared")
     func pipelineFailureSetsError() async {
-        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(error: MockError.failed))
+        let vm = makeVM(pipeline: MockPipeline(error: MockError.failed))
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-\(UUID().uuidString).mov")
 
@@ -84,11 +84,11 @@ struct VideoSourceSelectionViewModelTests {
     }
 
     @Test("handleLibraryButtonTap clears errorMessage")
-    func libraryButtonTapClearsError() {
+    func libraryButtonTapClearsError() async {
         let vm = makeVM(authStatus: .authorized)
         vm.errorMessage = "previous error"
 
-        vm.handleLibraryButtonTap()
+        await vm.handleLibraryButtonTap()
 
         #expect(vm.errorMessage == nil)
     }
@@ -96,44 +96,44 @@ struct VideoSourceSelectionViewModelTests {
     // MARK: - handleLibraryButtonTap permission branches
 
     @Test("denied → photoPermissionDenied set, picker not shown")
-    func deniedStatusSetsPermissionDenied() {
+    func deniedStatusSetsPermissionDenied() async {
         let vm = makeVM(authStatus: .denied)
-        vm.handleLibraryButtonTap()
+        await vm.handleLibraryButtonTap()
         #expect(vm.photoPermissionDenied == true)
         #expect(vm.showPhotoPicker == false)
     }
 
     @Test("restricted → photoPermissionDenied set, picker not shown")
-    func restrictedStatusSetsPermissionDenied() {
+    func restrictedStatusSetsPermissionDenied() async {
         let vm = makeVM(authStatus: .restricted)
-        vm.handleLibraryButtonTap()
+        await vm.handleLibraryButtonTap()
         #expect(vm.photoPermissionDenied == true)
         #expect(vm.showPhotoPicker == false)
     }
 
     @Test("authorized → picker shown, photoPermissionDenied cleared")
-    func authorizedStatusShowsPicker() {
+    func authorizedStatusShowsPicker() async {
         let vm = makeVM(authStatus: .authorized)
         vm.photoPermissionDenied = true  // pre-existing denial from a previous tap
 
-        vm.handleLibraryButtonTap()
+        await vm.handleLibraryButtonTap()
 
         #expect(vm.showPhotoPicker == true)
         #expect(vm.photoPermissionDenied == false)
     }
 
     @Test("limited → picker shown, photoPermissionDenied cleared")
-    func limitedStatusShowsPicker() {
+    func limitedStatusShowsPicker() async {
         let vm = makeVM(authStatus: .limited)
-        vm.handleLibraryButtonTap()
+        await vm.handleLibraryButtonTap()
         #expect(vm.showPhotoPicker == true)
         #expect(vm.photoPermissionDenied == false)
     }
 
     @Test("notDetermined → picker shown (PhotosPicker requests access itself)")
-    func notDeterminedStatusShowsPicker() {
+    func notDeterminedStatusShowsPicker() async {
         let vm = makeVM(authStatus: .notDetermined)
-        vm.handleLibraryButtonTap()
+        await vm.handleLibraryButtonTap()
         #expect(vm.showPhotoPicker == true)
         #expect(vm.photoPermissionDenied == false)
     }
@@ -142,7 +142,7 @@ struct VideoSourceSelectionViewModelTests {
 
     @Test("nil item → no-op: isProcessing and errorMessage unchanged")
     func nilPickerItemIsNoOp() {
-        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: []))
+        let vm = makeVM(pipeline: MockPipeline(segments: []))
         vm.handlePickerSelection(nil)
         #expect(vm.isProcessing == false)
         #expect(vm.errorMessage == nil)
@@ -152,7 +152,7 @@ struct VideoSourceSelectionViewModelTests {
 
     @Test("export error → generic error message, isProcessing cleared")
     func handleExportErrorSetsMessage() async {
-        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: []))
+        let vm = makeVM(pipeline: MockPipeline(segments: []))
         vm.isProcessing = true
         await vm.handleExport { throw MockError.failed }
         #expect(vm.errorMessage == "Could not analyze video. Try again.")
@@ -163,7 +163,7 @@ struct VideoSourceSelectionViewModelTests {
     func handleExportSuccessWithServes() async {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-\(UUID().uuidString).mov")
-        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: [makeFrames()]))
+        let vm = makeVM(pipeline: MockPipeline(segments: [makeFrames()]))
         vm.isProcessing = true
         await vm.handleExport { url }
         #expect(vm.errorMessage == nil)
@@ -174,7 +174,7 @@ struct VideoSourceSelectionViewModelTests {
     func handleExportSuccessZeroServes() async {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-\(UUID().uuidString).mov")
-        let vm = VideoSourceSelectionViewModel(pipeline: MockPipeline(segments: []))
+        let vm = makeVM(pipeline: MockPipeline(segments: []))
         vm.isProcessing = true
         await vm.handleExport { url }
         #expect(vm.errorMessage == "No serves detected. Try a different clip.")
@@ -185,14 +185,21 @@ struct VideoSourceSelectionViewModelTests {
 // MARK: - Helpers
 
 @MainActor
-private func makeVM(authStatus: PHAuthorizationStatus) -> VideoSourceSelectionViewModel {
-    VideoSourceSelectionViewModel(
-        pipeline: MockPipeline(segments: []),
-        authorizationStatus: { _ in authStatus }
+private func makeVM(
+    pipeline: any PoseAnalyzing = MockPipeline(segments: []),
+    authStatus: PHAuthorizationStatus = .authorized
+) -> VideoSourceSelectionViewModel {
+    let granted = authStatus != .denied && authStatus != .restricted
+    return VideoSourceSelectionViewModel(
+        coordinator: PipelineCoordinator(pipeline: pipeline),
+        permissionChecker: MockPermissionChecker(granted: granted)
     )
 }
 
-// MARK: - Helpers
+@MainActor
+private func makeVM(authStatus: PHAuthorizationStatus) -> VideoSourceSelectionViewModel {
+    makeVM(pipeline: MockPipeline(segments: []), authStatus: authStatus)
+}
 
 private func makeFrames() -> [PoseFrame] {
     [PoseFrame(timestamp: 0, joints: [
@@ -201,6 +208,11 @@ private func makeFrames() -> [PoseFrame] {
 }
 
 private enum MockError: Error { case failed }
+
+private struct MockPermissionChecker: PermissionChecking {
+    let granted: Bool
+    func checkPermission() async -> Bool { granted }
+}
 
 private struct MockPipeline: PoseAnalyzing {
     var segments: [[PoseFrame]] = []

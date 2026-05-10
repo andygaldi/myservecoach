@@ -36,7 +36,7 @@ struct VideoSourceSelectionView: View {
                         title: "Choose from Library",
                         subtitle: "Pick an existing clip",
                         icon: "photo.on.rectangle.angled",
-                        action: { viewModel.handleLibraryButtonTap() }
+                        action: { Task { await viewModel.handleLibraryButtonTap() } }
                     )
 
                     if viewModel.photoPermissionDenied {
