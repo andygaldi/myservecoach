@@ -53,33 +53,35 @@ def _make_keypoints_log(serves: list[list[dict]]) -> str:
 # Timestamps map to video frames at 30 fps (frame 0 = t=0.0, frame 1 = t=0.033, …).
 _T = [i / 30.0 for i in range(10)]
 
-def _j(lw_y, ls_y, rw_y, rh_y, conf=0.9, rw_x=0.7):
+def _j(lw_y, ls_y, rw_y, rh_y, re_y=None, conf=0.9, rw_x=0.7):
     """Build a joints dict for a single frame using real Vision joint names."""
-    return {
+    d = {
         "left_hand_joint":        {"x": 0.3,  "y": lw_y, "confidence": conf},
         "left_shoulder_1_joint":  {"x": 0.4,  "y": ls_y, "confidence": conf},
         "right_hand_joint":       {"x": rw_x, "y": rw_y, "confidence": conf},
         "right_upLeg_joint":      {"x": 0.5,  "y": rh_y, "confidence": conf},
     }
+    if re_y is not None:
+        d["right_forearm_joint"] = {"x": 0.6, "y": re_y, "confidence": conf}
+    return d
 
 # Frame-by-frame serve:
 #   t0: pre-serve (toss wrist below shoulder)
-#   t1: trophy pose  – lw_y=0.80 > ls_y=0.65; rw_y=0.50 > rh_y=0.30
-#   t2-t3: racket drops – rw_y falling
-#   t4: racket drop  – rw_y=0.05 (minimum)
-#   t5-t8: wrist rises
-#   t9: contact      – rw_y=0.95 (maximum)
+#   t1: trophy pose  – lw_y=0.80 > ls_y=0.65; rw_y=0.50 > rh_y=0.30; re_y=0.40 < rw_y
+#   t2-t3: elbow falling (re_y=0.30, 0.20)
+#   t4: racket drop  – biggest elbow rise: re_y jumps from 0.20 → 0.60 (delta +0.40)
+#   t5-t9: elbow rising; t9 contact – rw_y=0.95 (maximum wrist height)
 _SERVE_FRAMES = [
-    {"timestamp": _T[0], "joints": _j(lw_y=0.20, ls_y=0.65, rw_y=0.50, rh_y=0.30)},  # pre-serve
-    {"timestamp": _T[1], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.50, rh_y=0.30)},  # trophy (idx 1)
-    {"timestamp": _T[2], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.30, rh_y=0.30, rw_x=0.3)},
-    {"timestamp": _T[3], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.15, rh_y=0.30, rw_x=0.3)},
-    {"timestamp": _T[4], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.05, rh_y=0.30, rw_x=0.3)},  # drop (idx 4)
-    {"timestamp": _T[5], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.30, rh_y=0.30)},
-    {"timestamp": _T[6], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.55, rh_y=0.30)},
-    {"timestamp": _T[7], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.70, rh_y=0.30)},
-    {"timestamp": _T[8], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.85, rh_y=0.30)},
-    {"timestamp": _T[9], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.95, rh_y=0.30)},  # contact (idx 9)
+    {"timestamp": _T[0], "joints": _j(lw_y=0.20, ls_y=0.65, rw_y=0.50, rh_y=0.30, re_y=0.40)},  # pre-serve
+    {"timestamp": _T[1], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.50, rh_y=0.30, re_y=0.40)},  # trophy (idx 1)
+    {"timestamp": _T[2], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.30, rh_y=0.30, re_y=0.30, rw_x=0.3)},
+    {"timestamp": _T[3], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.15, rh_y=0.30, re_y=0.20, rw_x=0.3)},
+    {"timestamp": _T[4], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.05, rh_y=0.30, re_y=0.60, rw_x=0.3)},  # drop (idx 4)
+    {"timestamp": _T[5], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.30, rh_y=0.30, re_y=0.55)},
+    {"timestamp": _T[6], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.55, rh_y=0.30, re_y=0.55)},
+    {"timestamp": _T[7], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.70, rh_y=0.30, re_y=0.60)},
+    {"timestamp": _T[8], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.85, rh_y=0.30, re_y=0.65)},
+    {"timestamp": _T[9], "joints": _j(lw_y=0.80, ls_y=0.65, rw_y=0.95, rh_y=0.30, re_y=0.70)},  # contact (idx 9)
 ]
 
 

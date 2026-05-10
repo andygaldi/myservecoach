@@ -29,6 +29,7 @@ import cv2
 # Allow running from the repo root or from inside backend/.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from app.engine.angles import compute_angle, MIN_CONFIDENCE
 from app.engine.phases import detect_phases
 from app.models import Frame, Keypoint
 
@@ -180,7 +181,35 @@ _PHASE_BORDER = "#e44"
 _STRIP_HIGHLIGHT_BORDER = "#f90"
 
 
-def _img_tag(rel_path: str, width: int, border_color: str = "", label: str = "") -> str:
+def _frame_stats(frame_dict: dict) -> str:
+    """Return a one-line HTML string: hitting wrist y, elbow y, elbow angle."""
+    normalized = normalize_joints(frame_dict.get("joints", {}))
+
+    def _kp(name):
+        kp = normalized.get(name)
+        return kp if kp and kp.get("confidence", 0) >= MIN_CONFIDENCE else None
+
+    wrist = _kp("right_wrist")
+    elbow = _kp("right_elbow")
+    shoulder = _kp("right_shoulder")
+
+    wrist_y  = f"{wrist['y']:.2f}"   if wrist   else "—"
+    elbow_y  = f"{elbow['y']:.2f}"   if elbow   else "—"
+
+    if shoulder and elbow and wrist:
+        angle = compute_angle(
+            (shoulder["x"], shoulder["y"]),
+            (elbow["x"],    elbow["y"]),
+            (wrist["x"],    wrist["y"]),
+        )
+        angle_str = f"{angle:.0f}°" if angle is not None else "—"
+    else:
+        angle_str = "—"
+
+    return f"W:{wrist_y} E:{elbow_y} ∠{angle_str}"
+
+
+def _img_tag(rel_path: str, width: int, border_color: str = "", label: str = "", stats: str = "") -> str:
     style = f"width:{width}px;margin:4px;"
     if border_color:
         style += f"border:3px solid {border_color};box-sizing:border-box;"
@@ -190,9 +219,14 @@ def _img_tag(rel_path: str, width: int, border_color: str = "", label: str = "")
         if label
         else ""
     )
+    stats_html = (
+        f"<div style='font-size:10px;color:#666;text-align:center;white-space:nowrap'>{stats}</div>"
+        if stats
+        else ""
+    )
     return (
         f"<div style='display:inline-block;vertical-align:top;text-align:center'>"
-        f"<img src='{rel_path}' style='{style}'>{caption}</div>"
+        f"<img src='{rel_path}' style='{style}'>{caption}{stats_html}</div>"
     )
 
 
@@ -211,12 +245,12 @@ def generate_html(
 
         # All-frames thumbnail strip
         strip_parts: list[str] = []
-        for j in range(len(serve_dicts)):
+        for j, frame_dict in enumerate(serve_dicts):
             img_path = frames_dir / f"serve{serve_num}_frame{j:03d}.jpg"
             if img_path.exists():
                 rel = str(img_path.relative_to(output_dir))
                 border = _STRIP_HIGHLIGHT_BORDER if j in phase_idx_set else ""
-                strip_parts.append(_img_tag(rel, width=100, border_color=border))
+                strip_parts.append(_img_tag(rel, width=100, border_color=border, stats=_frame_stats(frame_dict)))
         strip_html = "".join(strip_parts) or "<em>No frames extracted.</em>"
 
         # Phase highlight row
