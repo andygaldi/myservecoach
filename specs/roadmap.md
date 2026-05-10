@@ -30,7 +30,7 @@ Implement `rules.json` threshold config and angle computation utilities. Serve p
 
 Video input selection screen presented at the start of an Assessment session. The user chooses between recording a new clip live or picking an existing video from their Photos library. Selecting a library video feeds it through the same Phase 2 pipeline (frame sampling → pose estimation → serve segmentation) and into the normal assessment flow — results and persistence are identical regardless of input source. Uses SwiftUI's `PhotosPicker` (iOS 16+) to request only the video asset, avoiding a full Photos library permission prompt.
 
-## Phase 6 — Segmentation Calibration ⬜
+## Phase 6 — Segmentation Calibration ✅
 
 > **Refactoring prerequisites (complete before adding new Phase 6 features):**
 > - Extract a shared `PermissionChecking` protocol (or similar) and unify the permission-checking pattern between `CameraViewModel` and `VideoSourceSelectionViewModel` — currently both have slightly different injectable closure shapes.
