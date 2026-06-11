@@ -6,88 +6,88 @@ Legend: ✅ Complete · 🔄 In Progress · ⬜ Pending
 
 ---
 
-## Phase 0 — Project Foundation ✅
+## Lite Version MVP
+
+### Phase 0 — Project Foundation ✅
 
 Basic SwiftUI project scaffold with folder structure matching the CLAUDE.md architecture.
 
-## Phase 1 — Video Capture UI ✅
+### Phase 1 — Video Capture UI ✅
 
 Camera view (full-screen portrait), record/stop button, post-recording preview playback. AVFoundation `AVCaptureSession` pipeline writing to a temp file. Real-device only; Simulator shows a placeholder.
 
-## Phase 2 — On-Device Pose Estimation & Serve Segmentation ✅
+### Phase 2 — On-Device Pose Estimation & Serve Segmentation ✅
 
 Sample frames from the recorded video at a fixed interval. Run `VNDetectHumanBodyPoseRequest` on each frame. Detect serve boundaries by analyzing keypoint velocity across the frame sequence. Output is a list of per-serve keypoint arrays, not a flat stream. Log segmented keypoint JSON to the console. No backend call yet.
 
-## Phase 3 — Backend Scaffold ✅
+### Phase 3 — Backend Scaffold ✅
 
 FastAPI project at `backend/` in the same repo as the iOS app. Implements a `POST /analyze` endpoint that accepts a single serve's keypoint JSON and returns a hardcoded list of coaching cues. This single-serve contract is shared by both workflows — Assessment loops one call per segmented serve; Set Goal calls it once per detected serve. Confirms the iOS ↔ backend contract before any real logic is written.
 
-## Phase 4 — Coaching Rule Engine ✅
+### Phase 4 — Coaching Rule Engine ✅
 
 Implement `rules.json` threshold config and angle computation utilities. Serve phase detection (trophy pose, racket drop, contact point). Unit-tested with pytest. Backend now returns real cues instead of hardcoded ones.
 
-## Phase 5 — Video Library Import ✅
+### Phase 5 — Video Library Import ✅
 
-Video input selection screen presented at the start of an Assessment session. The user chooses between recording a new clip live or picking an existing video from their Photos library. Selecting a library video feeds it through the same Phase 2 pipeline (frame sampling → pose estimation → serve segmentation) and into the normal assessment flow — results and persistence are identical regardless of input source. Uses SwiftUI's `PhotosPicker` (iOS 16+) to request only the video asset, avoiding a full Photos library permission prompt.
+Video input selection screen presented at the start of a session. The user chooses between recording a new clip live or picking an existing video from their Photos library. Selecting a library video feeds it through the same Phase 2 pipeline (frame sampling → pose estimation → serve segmentation) and into the normal flow — results and persistence are identical regardless of input source. Uses SwiftUI's `PhotosPicker` (iOS 16+) to request only the video asset, avoiding a full Photos library permission prompt.
 
-## Phase 6 — Segmentation Calibration ✅
-
-> **Refactoring prerequisites (complete before adding new Phase 6 features):**
-> - Extract a shared `PermissionChecking` protocol (or similar) and unify the permission-checking pattern between `CameraViewModel` and `VideoSourceSelectionViewModel` — currently both have slightly different injectable closure shapes.
-> - Unify pipeline execution: `CameraViewModel` and `VideoSourceSelectionViewModel` both drive `PoseAnalysisPipeline` with similar Task+error-handling patterns; extract a shared coordinator to avoid drift.
+### Phase 6 — Segmentation Calibration ✅
 
 Validate and tune the heuristic phase detection logic against real serve footage. Input videos come from two sources: clips recorded directly with the iOS app and external serve videos imported via the Phase 5 Photos library picker — both go through the same on-device Vision pose estimation pipeline. Export the keypoint JSON from the Xcode console and the video file from the device (AirDrop or Files app). A Python script in `backend/tools/` takes those two files, extracts frame images using OpenCV at the timestamps in the keypoint JSON, and produces an HTML report showing thumbnails of every sampled frame alongside highlighted images of the frame identified for each phase (trophy pose, racket drop, contact). No pose estimation happens in the Python tool — it only handles frame extraction and layout. Compare the report against the source video and adjust `phases.py` heuristics until all three phases land on the visually correct frames across a representative set of serves.
 
-## Phase 7 — Rule Calibration ⬜
+> **Outcome / pivot note**: Phase 6 established that on-device Vision pose estimation is not reliable enough for fully automated segmentation across real-world conditions (varied backgrounds, lighting, court lines). Automatic serve detection also cannot reliably identify racket position, which is critical for accurate phase classification. As a result, Phases 7+ pivot to a **Lite Version** model: the app still uses Vision for an initial phase-frame guess, but the user manually reviews and corrects the detected frames before comparison. Automated coaching cues (Assessment, Set Goal workflows) are deferred to a future Pro Version that requires better pose estimation.
 
-Ground the rule thresholds in real biomechanics. Using the same serve videos from Phase 6, run a developer script (`backend/tools/analyze_angles.py`) that prints all joint angles and relative positions at each validated phase frame for each serve. Compare measured values from technically sound serves against the current `rules.json` thresholds. Update thresholds — and add, remove, or re-weight rules — to reflect what a good serve actually looks like. The script is checked into `backend/tools/` as a permanent dev utility alongside the Phase 6 visual report tool.
+### Phase 7 — Manual Frame Selection UI ⬜
 
-## Phase 8 — iOS Networking ⬜
+After pose estimation runs and produces guessed phase frames (trophy pose, racket drop, contact point), present a "phase review" screen where the user can inspect each guessed frame and scrub through the video to select the correct frame if the guess is wrong. The three phases are shown in sequence; the user confirms each one. The confirmed frames are the canonical phase frames for the session — all downstream comparison and persistence use these frames, not the raw Vision output.
 
-URLSession `async/await` layer. For each segmented serve from Phase 2, POST its keypoint JSON to the Phase 3/4 backend (one call per serve). Collect the cue responses and surface them in a basic SwiftUI text view.
+### Phase 8 — Reference Frame Backend & iOS Networking ⬜
 
-## Phase 9 — Results Screen ⬜
+Pivot the FastAPI backend from a coaching rule engine to a reference frame API. The backend hosts a curated library of phase frames from high-quality serves (trophy pose, racket drop, contact point), organized by phase key. Implement a `GET /reference-frames` endpoint that returns the reference frame library (URLs or base64-encoded images). iOS fetches reference frames via URLSession `async/await` at the end of the phase review step. Network required; show a clear error if the fetch fails.
 
-Dedicated SwiftUI results screen: session date/time header, one keyframe thumbnail per segmented serve (contact-point frame; no skeleton yet), scrollable list of coaching cues per serve. Displayed immediately after analysis completes.
+### Phase 9 — Side-by-Side Comparison Screen ⬜
 
-## Phase 10 — SwiftData Persistence ⬜
+Dedicated SwiftUI results screen showing the user's confirmed phase frames alongside the fetched reference frames. One row per phase (trophy pose, racket drop, contact point): user's frame on the left, reference frame on the right, phase label above. The layout should make it immediately obvious which part of the motion each pair represents. Displayed immediately after the reference frames are fetched.
 
-SwiftData models: `ServeSession` (full clip metadata — date, duration, total serves) with child `ServeAttempt` records (one per segmented serve, each holding its keypoints and coaching cues). History list screen shows past sessions; tap to re-open results.
+### Phase 10 — SwiftData Persistence ⬜
 
-## Phase 11 — Assessment MVP Polish ⬜
+SwiftData models: `ServeSession` (clip metadata — date, source, input type) with child `ServePhase` records (one per confirmed phase frame, each holding the frame timestamp, the phase key, and the URL/identifier of the reference frame shown). History list screen shows past sessions; tap to re-open the comparison view.
 
-Loading/progress states during analysis. Error handling (network failure, no pose detected). Empty states for history screen. Basic app icon and launch screen. **Assessment workflow complete.**
+### Phase 11 — Lite MVP Polish ⬜
 
-## Phase 12 — Goal Library & Selection UI ⬜
+Loading/progress states during pose estimation and reference frame fetch. Error handling (network failure, no pose detected, all phases unconfirmed). Empty states for history screen. Basic app icon and launch screen. **Lite Version MVP complete.**
 
-Define the goal catalog: each goal maps to one specific rule/metric in `rules.json` (e.g., `pronation_contact`, `trophy_pose_elbow_height`). Backend `POST /analyze` accepts an optional `goal_id`; when present, returns a `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. SwiftUI goal-selection screen presented before starting a Set Goal session.
+---
 
-## Phase 13 — Set Goal Session Mode ⬜
+## Pro Version (Deferred)
 
-Continuous recording session: `AVCaptureSession` runs uninterrupted from session start to "End Session". On-device serve detection (same keypoint velocity algorithm from Phase 2, applied to the live feed) automatically identifies each serve as it happens. After each detected serve: analyze keypoints → POST to backend with `goal_id` → speak the `spoken_cue` result via AVSpeechSynthesizer → resume listening for the next serve. Player never needs to touch the screen between serves. When the session ends the video is discarded; only keypoints and pass/fail results are persisted.
+These phases require better pose estimation than Apple Vision currently provides — specifically, reliable racket-object detection and background removal for accurate automatic serve segmentation. They are defined here for continuity but are not scheduled.
 
-## Phase 14 — Goal Session Persistence ⬜
+### Phase P1 — Rule Calibration
 
-SwiftData models for `GoalSession` and `GoalAttempt` (per-serve pass/fail + spoken cue). Summary screen after ending a session (pass rate, attempt count). Goal sessions appear in history alongside Assessment sessions. **Set Goal workflow complete.**
+Ground the rule thresholds in real biomechanics. Using the same serve videos from Phase 6, run a developer script (`backend/tools/analyze_angles.py`) that prints all joint angles and relative positions at each validated phase frame for each serve. Compare measured values from technically sound serves against the current `rules.json` thresholds. Update thresholds — and add, remove, or re-weight rules — to reflect what a good serve actually looks like.
 
-## Phase 15 — LLM Coaching Cues ⬜
+### Phase P2 — Automated Coaching Cues (Assessment MVP)
 
-Integrate Claude API in the backend. Pass rule violations + keypoints to Claude to generate natural-language coaching paragraphs. Displayed as an expandable section below the cue list in the Assessment results screen.
+For each confirmed (or auto-detected) phase frame, POST keypoints to the backend; receive and display a list of coaching cues. Requires accurate automatic segmentation — not dependent on user correction for every session. URLSession networking, results screen with coaching cue list, SwiftData persistence.
 
-## Phase 16 — Pose Skeleton Overlay & Live Confidence Check ⬜
+### Phase P3 — Goal Library & Set Goal Session Mode
 
-Two related features sharing the same skeleton-rendering layer:
+Continuous recording session with on-device serve detection, per-serve analysis, and AVSpeechSynthesizer audible cues. Goal catalog defined; backend returns `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues.
 
-**Pre-recording confidence check**: Before an Assessment or Set Goal session begins, the camera view runs `VNDetectHumanBodyPoseRequest` on the live feed and draws a real-time skeleton overlay on screen. Joint confidence is evaluated against the same thresholds used during analysis; if key joints (shoulders, elbows, wrists, hips) fall below the minimum, a prominent warning prompts the user to adjust their position, lighting, or camera angle before proceeding. The user taps "Looks good" to dismiss the check and start recording.
+### Phase P4 — LLM Coaching Cues
 
-**Results-screen overlay**: Draw the detected skeleton on keyframe thumbnails in the results screen using SwiftUI `Canvas` or Core Graphics, giving players visual confirmation that pose detection worked correctly on the recorded footage.
+Integrate Claude API in the backend. Pass rule violations + keypoints to Claude to generate natural-language coaching paragraphs. Displayed as an expandable section below the cue list.
 
-Both surfaces share the same joint-drawing component; the confidence check adds the live-feed sampling loop and the threshold-based warning UI on top.
+### Phase P5 — Pose Skeleton Overlay & Live Confidence Check
 
-## Phase 17 — Serve-Type Awareness ⬜
+Pre-recording skeleton overlay on the live feed with a joint-confidence warning. Skeleton drawn on keyframe thumbnails in the results screen.
 
-Add a serve-type selection step to the session setup flow (flat, slice, or kick). The selection is passed to the backend alongside keypoints; the rule engine applies serve-type-specific thresholds and cues rather than a single universal rule set. Each serve type has meaningfully different biomechanical targets — kick serves demand a pronounced leg drive and a toss further behind the head, slice requires a toss to the right (for right-handers) and a brushing contact path, flat prioritizes maximum pronation and a high contact point. `rules.json` is restructured to support per-type threshold variants, and the Phase 6/7 calibration tools are rerun against footage of each serve type to validate the new thresholds.
+### Phase P6 — Serve-Type Awareness
 
-## Phase 18 — Multi-Angle Support ⬜
+Serve-type selection (flat, slice, kick) before recording. Backend applies serve-type-specific rule thresholds. `rules.json` restructured for per-type variants.
 
-Extend the pipeline to support recording from behind the server and from the closed side, in addition to the MVP open-side angle. Each angle requires its own segmentation heuristics (keypoint velocity patterns differ by view) and its own rule set (e.g., toss height and leg drive are visible from the side but not from behind; shoulder rotation reads differently per angle). A new angle-selection step is added to the session setup flow so the user declares their camera position before recording. Phase 6/7 calibration tools are reused to validate heuristics and thresholds for each new angle against real serve footage.
+### Phase P7 — Multi-Angle Support
+
+Pipeline extended for behind-server and closed-side angles. Angle-selection step added to session setup; angle-specific segmentation heuristics and rule sets.
