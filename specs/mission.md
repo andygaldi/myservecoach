@@ -51,6 +51,7 @@ Continuous recording session focused on a single technique goal (e.g., "trophy p
 - Visual pose skeleton overlay on keyframe thumbnails
 - Longitudinal serve history and trend analysis
 - Serve-type awareness: reference frames and future coaching cues tailored to flat, slice, or kick serve
+- Full 8-stage serve analysis based on the Kovacs biomechanical model (start, release, loading, cocking, acceleration, contact, deceleration, finish) — the Lite MVP covers stages 4–6; the Pro Version extends analysis to the complete motion
 - Apple Watch integration: remote start/stop from the wrist; accelerometer data for wrist pronation
 - External racket sensor support: Bluetooth IMU for racket-head speed and swing-path angle
 

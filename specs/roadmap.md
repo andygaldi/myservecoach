@@ -26,7 +26,7 @@ FastAPI project at `backend/` in the same repo as the iOS app. Implements a `POS
 
 ### Phase 4 — Coaching Rule Engine ✅
 
-Implement `rules.json` threshold config and angle computation utilities. Serve phase detection (trophy pose, racket drop, contact point). Unit-tested with pytest. Backend now returns real cues instead of hardcoded ones.
+Implement `rules.json` threshold config and angle computation utilities. Serve phase detection (trophy pose, racket drop, contact point — corresponding to Stages 4, 4–5, and 6 of the Kovacs 8-stage serve model; see Pro Version Phase P8 for full-model expansion). Unit-tested with pytest. Backend now returns real cues instead of hardcoded ones.
 
 ### Phase 5 — Video Library Import ✅
 
@@ -91,3 +91,20 @@ Serve-type selection (flat, slice, kick) before recording. Backend applies serve
 ### Phase P7 — Multi-Angle Support
 
 Pipeline extended for behind-server and closed-side angles. Angle-selection step added to session setup; angle-specific segmentation heuristics and rule sets.
+
+### Phase P8 — Full 8-Stage Serve Analysis (Kovacs Model)
+
+Expand phase detection from the current 3-frame model to all 8 stages defined in Kovacs & Ellenbecker (2011) — *A Biomechanical Review of the Tennis Serve* ([PMC3445225](https://pmc.ncbi.nlm.nih.gov/articles/PMC3445225/)):
+
+| Stage | Name | Description | Kovacs angles / criteria |
+|---|---|---|---|
+| 1 | Start | Stance and initial alignment | Minimal muscle activation; ground force generation begins |
+| 2 | Release | Ball toss | Toss slightly lateral to overhead; ~100° arm abduction target |
+| 3 | Loading | Weight transfer and coil | Front knee flexion >15°; shoulder/pelvis lateral rear tilt; vertical GRF 1.68–2.12× body weight |
+| 4 | Cocking | Trophy pose → max external rotation | Shoulder abduction 101° ± 13°; ext. rotation 172° ± 12°; elbow flexion 104° ± 12° |
+| 5 | Acceleration | External rotation → contact | Peak leg EMG; lead knee extension velocity 800° ± 400°/s; trunk rotation reversal |
+| 6 | Contact | Ball strike | Trunk tilt 48° ± 7°; shoulder abduction ~100–110°; elbow flexion 20° ± 4° |
+| 7 | Deceleration | Arm and trunk deceleration | Eccentric shoulder distraction 0.5–0.75× body weight; up to 300 N·m trunk-arm deceleration torque |
+| 8 | Finish | Front-foot landing | Horizontal braking forces; eccentric lower-body loading |
+
+The Lite MVP captures Stages 4, 4–5, and 6 only (trophy pose, racket drop, contact point). This phase adds the five remaining stages as detectable phase frames, enabling coaching cues and reference comparisons across the complete serve motion. Requires the improved off-device pose estimation planned for the Pro Version (Raspberry Pi pipeline) — current on-device Vision cannot reliably detect the subtle position cues for Stages 1–3 and 7–8.
