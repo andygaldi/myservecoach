@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Observation
 import SwiftUI   // required: PhotosPickerItem lives in _PhotosUI_SwiftUI overlay on iOS 26+
@@ -14,9 +15,12 @@ final class VideoSourceSelectionViewModel {
     var photoPermissionDenied = false
     var isProcessing = false
     var errorMessage: String?
+    var navigateToPhaseReview = false
+    var phaseReviewViewModel: PhaseReviewViewModel?
 
     private let exporter = LibraryVideoExporter()
     private let coordinator: PipelineCoordinator
+    private var pendingVideoURL: URL?
 
     @ObservationIgnored
     private let permissionChecker: any PermissionChecking
@@ -63,15 +67,38 @@ final class VideoSourceSelectionViewModel {
     @MainActor
     func runPipeline(on url: URL) async {
         do {
-            defer { try? FileManager.default.removeItem(at: url) }
             let segments = try await coordinator.run(videoURL: url)
             if segments.isEmpty {
                 errorMessage = "No serves detected. Try a different clip."
+                try? FileManager.default.removeItem(at: url)
+            } else {
+                let guessedFrames = PhaseGuesser().guess(frames: segments[0])
+                let asset = AVURLAsset(url: url)
+                pendingVideoURL = url
+                phaseReviewViewModel = PhaseReviewViewModel(guessedFrames: guessedFrames, videoAsset: asset)
+                navigateToPhaseReview = true
             }
         } catch {
             errorMessage = "Could not analyze video. Try again."
+            try? FileManager.default.removeItem(at: url)
             print("[VideoSourceSelection] Pipeline error: \(error)")
         }
         isProcessing = false
+    }
+
+    func dismissPhaseReview() {
+        navigateToPhaseReview = false
+        phaseReviewViewModel = nil
+        if let url = pendingVideoURL {
+            try? FileManager.default.removeItem(at: url)
+            pendingVideoURL = nil
+        }
+    }
+
+    func cleanupPendingVideo() {
+        if let url = pendingVideoURL {
+            try? FileManager.default.removeItem(at: url)
+            pendingVideoURL = nil
+        }
     }
 }
