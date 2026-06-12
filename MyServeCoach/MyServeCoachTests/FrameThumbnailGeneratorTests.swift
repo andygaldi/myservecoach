@@ -5,6 +5,7 @@ import Testing
 @testable import MyServeCoach
 
 @Suite("FrameThumbnailGenerator Tests")
+@MainActor
 struct FrameThumbnailGeneratorTests {
 
     @Test("throws when asset URL does not exist")

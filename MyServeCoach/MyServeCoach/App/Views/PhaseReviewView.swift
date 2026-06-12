@@ -91,11 +91,15 @@ struct PhaseReviewView: View {
     private var bottomToolbar: some View {
         HStack {
             Button {
-                viewModel.retreat()
+                if viewModel.currentStepIndex == 0 {
+                    onCancel()
+                    dismiss()
+                } else {
+                    viewModel.retreat()
+                }
             } label: {
                 Label("Back", systemImage: "chevron.left")
             }
-            .disabled(viewModel.currentStepIndex == 0)
 
             Spacer()
 
@@ -113,6 +117,7 @@ struct PhaseReviewView: View {
                     Label("Next", systemImage: "chevron.right")
                         .labelStyle(.titleAndIcon)
                 }
+                .disabled(viewModel.confirmedTimestamps[viewModel.currentPhase] == nil)
             } else {
                 Button("Done") {
                     let frames = viewModel.confirmedPhaseFrames()
