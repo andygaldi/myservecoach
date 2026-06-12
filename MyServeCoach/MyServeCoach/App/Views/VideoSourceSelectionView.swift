@@ -63,6 +63,15 @@ struct VideoSourceSelectionView: View {
             .navigationDestination(isPresented: $viewModel.navigateToRecord) {
                 RecordServeView()
             }
+            .navigationDestination(isPresented: $viewModel.navigateToPhaseReview) {
+                if let phaseVM = viewModel.phaseReviewViewModel {
+                    PhaseReviewView(
+                        viewModel: phaseVM,
+                        onDone: { _ in },
+                        onCancel: { viewModel.dismissPhaseReview() }
+                    )
+                }
+            }
             .photosPicker(
                 isPresented: $viewModel.showPhotoPicker,
                 selection: $pickerItem,
