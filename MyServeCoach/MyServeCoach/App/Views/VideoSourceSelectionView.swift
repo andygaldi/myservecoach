@@ -67,7 +67,7 @@ struct VideoSourceSelectionView: View {
                 if let phaseVM = viewModel.phaseReviewViewModel {
                     PhaseReviewView(
                         viewModel: phaseVM,
-                        onDone: { _ in viewModel.cleanupPendingVideo() },
+                        onDone: { _ in },
                         onCancel: { viewModel.dismissPhaseReview() }
                     )
                 }

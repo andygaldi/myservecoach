@@ -7,7 +7,7 @@ import Foundation
 /// to fall back to the video midpoint with a "No pose detected" label for every phase.
 struct PhaseGuesser {
     func guess(frames: [PoseFrame]) -> [PhaseFrame] {
-        guard !frames.isEmpty else { return [] }
+        guard frames.count >= 3 else { return [] }
 
         let sorted = frames.sorted { $0.timestamp < $1.timestamp }
         let n = sorted.count

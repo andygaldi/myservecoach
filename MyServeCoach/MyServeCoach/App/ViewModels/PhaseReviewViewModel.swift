@@ -19,8 +19,8 @@ final class PhaseReviewViewModel {
         ServePhase.allCases.allSatisfy { confirmedTimestamps[$0] != nil }
     }
 
-    var isCurrentPhaseFallback: Bool {
-        !guessedFrames.contains(where: { $0.phase == currentPhase })
+    var allPhasesAreFallback: Bool {
+        guessedFrames.isEmpty
     }
 
     let videoAsset: AVAsset
@@ -32,21 +32,24 @@ final class PhaseReviewViewModel {
     init(
         guessedFrames: [PhaseFrame],
         videoAsset: AVAsset,
-        thumbnailGenerator: FrameThumbnailGenerator = FrameThumbnailGenerator(),
+        thumbnailGenerator: FrameThumbnailGenerator? = nil,
         seekFallback: ((AVAsset) -> CMTime)? = nil
     ) {
         self.guessedFrames = guessedFrames
         self.videoAsset = videoAsset
-        self.thumbnailGenerator = thumbnailGenerator
-        self.seekFallback = seekFallback ?? { CMTimeMultiplyByFloat64($0.duration, multiplier: 0.5) }
+        // Defaults created here (inside the @MainActor init body) to avoid
+        // main-actor isolation warnings on default parameter expressions.
+        self.thumbnailGenerator = thumbnailGenerator ?? FrameThumbnailGenerator()
+        self.seekFallback = seekFallback ?? { _ in .zero }
     }
 
     func setFrame(at time: CMTime) {
-        confirmedTimestamps[currentPhase] = time
+        let phase = currentPhase
+        confirmedTimestamps[phase] = time
         Task { @MainActor [weak self] in
             guard let self else { return }
             if let image = try? await self.thumbnailGenerator.thumbnail(at: time, for: self.videoAsset) {
-                self.confirmedThumbnails[self.currentPhase] = image
+                self.confirmedThumbnails[phase] = image
             }
         }
     }

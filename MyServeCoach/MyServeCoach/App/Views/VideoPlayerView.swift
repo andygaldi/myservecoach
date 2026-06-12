@@ -23,7 +23,7 @@ struct VideoPlayerView: UIViewControllerRepresentable {
 
     final class Coordinator {
         private let binding: Binding<CMTime>
-        private weak var player: AVPlayer?
+        private var player: AVPlayer?
         private var observerToken: Any?
 
         init(binding: Binding<CMTime>) {

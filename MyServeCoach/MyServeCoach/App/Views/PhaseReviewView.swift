@@ -11,7 +11,6 @@ struct PhaseReviewView: View {
     @State private var currentTime: CMTime = .zero
     @State private var player: AVPlayer?
     @State private var navigateToPhase8 = false
-    @State private var confirmedFrames: [PhaseFrame] = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -33,7 +32,7 @@ struct PhaseReviewView: View {
             }
         }
         .navigationDestination(isPresented: $navigateToPhase8) {
-            ReferenceFrameFetchView(confirmedFrames: confirmedFrames)
+            ReferenceFrameFetchView(confirmedFrames: viewModel.confirmedPhaseFrames())
         }
         .task(id: viewModel.currentStepIndex) {
             await setupOrSeek()
@@ -49,7 +48,7 @@ struct PhaseReviewView: View {
             Text("Step \(viewModel.currentStepIndex + 1) of \(ServePhase.allCases.count)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            if viewModel.isCurrentPhaseFallback {
+            if viewModel.allPhasesAreFallback {
                 Text("No pose detected — pick manually")
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -120,9 +119,7 @@ struct PhaseReviewView: View {
                 .disabled(viewModel.confirmedTimestamps[viewModel.currentPhase] == nil)
             } else {
                 Button("Done") {
-                    let frames = viewModel.confirmedPhaseFrames()
-                    confirmedFrames = frames
-                    onDone(frames)
+                    onDone(viewModel.confirmedPhaseFrames())
                     navigateToPhase8 = true
                 }
                 .disabled(!viewModel.isDoneEnabled)
@@ -140,5 +137,6 @@ struct PhaseReviewView: View {
         let seekTime = viewModel.initialSeekTime(for: viewModel.currentPhase)
         let tolerance = CMTime(value: 1, timescale: 10)
         await player?.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: tolerance)
+        guard !Task.isCancelled else { return }
     }
 }

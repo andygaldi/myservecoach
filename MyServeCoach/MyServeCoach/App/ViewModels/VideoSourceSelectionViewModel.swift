@@ -66,6 +66,11 @@ final class VideoSourceSelectionViewModel {
     // Internal so tests can exercise the pipeline path directly.
     @MainActor
     func runPipeline(on url: URL) async {
+        // Release any temp file left over from a previous incomplete session.
+        if let old = pendingVideoURL {
+            try? FileManager.default.removeItem(at: old)
+            pendingVideoURL = nil
+        }
         do {
             let segments = try await coordinator.run(videoURL: url)
             if segments.isEmpty {
@@ -95,10 +100,4 @@ final class VideoSourceSelectionViewModel {
         }
     }
 
-    func cleanupPendingVideo() {
-        if let url = pendingVideoURL {
-            try? FileManager.default.removeItem(at: url)
-            pendingVideoURL = nil
-        }
-    }
 }

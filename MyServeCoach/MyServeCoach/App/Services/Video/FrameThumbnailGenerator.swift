@@ -5,7 +5,7 @@ struct FrameThumbnailGenerator {
     func thumbnail(at time: CMTime, for asset: AVAsset) async throws -> UIImage {
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 10)
         generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
 
         let (cgImage, _) = try await generator.image(at: time)
