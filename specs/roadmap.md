@@ -38,7 +38,7 @@ Validate and tune the heuristic phase detection logic against real serve footage
 
 > **Outcome / pivot note**: Phase 6 established that on-device Vision pose estimation is not reliable enough for fully automated segmentation across real-world conditions (varied backgrounds, lighting, court lines). Automatic serve detection also cannot reliably identify racket position, which is critical for accurate phase classification. As a result, Phases 7+ pivot to a **Lite Version** model: the app still uses Vision for an initial phase-frame guess, but the user manually reviews and corrects the detected frames before comparison. Automated coaching cues (Assessment, Set Goal workflows) are deferred to a future Pro Version that requires better pose estimation.
 
-### Phase 7 — Manual Frame Selection UI ⬜
+### Phase 7 — Manual Frame Selection UI ✅
 
 After pose estimation runs and produces guessed phase frames (trophy pose, racket drop, contact point), present a "phase review" screen where the user can inspect each guessed frame and scrub through the video to select the correct frame if the guess is wrong. The three phases are shown in sequence; the user confirms each one. The confirmed frames are the canonical phase frames for the session — all downstream comparison and persistence use these frames, not the raw Vision output.
 
