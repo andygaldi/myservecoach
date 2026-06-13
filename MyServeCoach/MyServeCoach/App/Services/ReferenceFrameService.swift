@@ -9,7 +9,10 @@ final class ReferenceFrameService {
 
     func fetchReferenceFrames() async throws -> ReferenceFrameLibrary {
         let url = baseURL.appendingPathComponent("reference-frames")
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
         return try JSONDecoder().decode(ReferenceFrameLibrary.self, from: data)
     }
 }

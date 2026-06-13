@@ -16,27 +16,36 @@ async def test_reference_frames_returns_200(transport):
 
 
 @pytest.mark.asyncio
-async def test_reference_frames_has_three_phase_keys(transport):
+async def test_reference_frames_has_three_phases(transport):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         data = (await client.get("/reference-frames")).json()
-    assert set(data["reference_frames"].keys()) == {"trophy_pose", "racket_drop", "contact"}
+    phases = {f["phase"] for f in data["reference_frames"]}
+    assert phases == {"trophy_pose", "racket_drop", "contact"}
+
+
+@pytest.mark.asyncio
+async def test_reference_frames_are_in_serve_order(transport):
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        data = (await client.get("/reference-frames")).json()
+    phases = [f["phase"] for f in data["reference_frames"]]
+    assert phases == ["trophy_pose", "racket_drop", "contact"]
 
 
 @pytest.mark.asyncio
 async def test_reference_frames_entries_have_required_fields(transport):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         data = (await client.get("/reference-frames")).json()
-    for entry in data["reference_frames"].values():
+    for entry in data["reference_frames"]:
         assert "phase" in entry
         assert "label" in entry
         assert "image_url" in entry
 
 
 @pytest.mark.asyncio
-async def test_reference_frames_image_url_filenames(transport):
+async def test_reference_frames_image_urls(transport):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         data = (await client.get("/reference-frames")).json()
-    frames = data["reference_frames"]
-    assert frames["trophy_pose"]["image_url"].endswith("trophy_pose.jpg")
-    assert frames["racket_drop"]["image_url"].endswith("racket_drop.jpg")
-    assert frames["contact"]["image_url"].endswith("contact.jpg")
+    by_phase = {f["phase"]: f for f in data["reference_frames"]}
+    assert by_phase["trophy_pose"]["image_url"] == "http://test/static/reference_frames/trophy_pose.jpg"
+    assert by_phase["racket_drop"]["image_url"] == "http://test/static/reference_frames/racket_drop.jpg"
+    assert by_phase["contact"]["image_url"] == "http://test/static/reference_frames/contact.jpg"
