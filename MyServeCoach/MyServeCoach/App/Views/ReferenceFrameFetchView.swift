@@ -1,36 +1,52 @@
-import CoreMedia
 import SwiftUI
 
 struct ReferenceFrameFetchView: View {
-    let confirmedFrames: [PhaseFrame]
+    let viewModel: ReferenceFrameViewModel
 
     var body: some View {
         VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "arrow.down.circle")
-                .font(.system(size: 56))
-                .foregroundStyle(Color.accentColor)
-            Text("Reference Frame Fetch")
-                .font(.title2.weight(.bold))
-            Text("Phase 8 — Coming soon")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Divider()
-                .padding(.horizontal)
-            ForEach(confirmedFrames, id: \.phase.rawValue) { frame in
-                HStack {
-                    Text(frame.phase.rawValue)
-                        .font(.caption.weight(.semibold))
-                    Spacer()
-                    Text(String(format: "%.2fs", frame.timestamp.seconds))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+            if viewModel.isFetching {
+                ProgressView("Loading reference frames…")
+            } else if let library = viewModel.library {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.green)
+                Text("Reference Frames Ready")
+                    .font(.title2.weight(.bold))
+                Divider().padding(.horizontal)
+                ForEach(library.referenceFrames, id: \.phase) { frame in
+                    HStack {
+                        Text(frame.label)
+                            .font(.caption.weight(.semibold))
+                        Spacer()
+                        Text(frame.imageURL.lastPathComponent)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
+            } else {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 56))
+                    .foregroundStyle(Color.accentColor)
+                Text("Fetching Reference Frames…")
+                    .font(.title2.weight(.bold))
             }
             Spacer()
         }
         .navigationTitle("Reference Frames")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await viewModel.fetch() }
+        .alert(
+            "Could not load reference frames. Check your connection and try again.",
+            isPresented: Binding(
+                get: { viewModel.fetchError != nil },
+                set: { if !$0 { viewModel.clearError() } }
+            )
+        ) {
+            Button("Retry") { Task { await viewModel.fetch() } }
+            Button("Dismiss", role: .cancel) { viewModel.clearError() }
+        }
     }
 }

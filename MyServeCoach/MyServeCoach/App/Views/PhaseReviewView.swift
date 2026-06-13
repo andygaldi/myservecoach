@@ -10,7 +10,7 @@ struct PhaseReviewView: View {
 
     @State private var currentTime: CMTime = .zero
     @State private var player: AVPlayer?
-    @State private var navigateToPhase8 = false
+    @State private var referenceFrameViewModel: ReferenceFrameViewModel?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -31,8 +31,8 @@ struct PhaseReviewView: View {
                 }
             }
         }
-        .navigationDestination(isPresented: $navigateToPhase8) {
-            ReferenceFrameFetchView(confirmedFrames: viewModel.confirmedPhaseFrames())
+        .navigationDestination(item: $referenceFrameViewModel) { vm in
+            ReferenceFrameFetchView(viewModel: vm)
         }
         .task(id: viewModel.currentStepIndex) {
             await setupOrSeek()
@@ -119,8 +119,9 @@ struct PhaseReviewView: View {
                 .disabled(viewModel.confirmedTimestamps[viewModel.currentPhase] == nil)
             } else {
                 Button("Done") {
-                    onDone(viewModel.confirmedPhaseFrames())
-                    navigateToPhase8 = true
+                    let frames = viewModel.confirmedPhaseFrames()
+                    onDone(frames)
+                    referenceFrameViewModel = ReferenceFrameViewModel(confirmedFrames: frames)
                 }
                 .disabled(!viewModel.isDoneEnabled)
             }

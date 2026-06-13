@@ -42,7 +42,7 @@ Validate and tune the heuristic phase detection logic against real serve footage
 
 After pose estimation runs and produces guessed phase frames (trophy pose, racket drop, contact point), present a "phase review" screen where the user can inspect each guessed frame and scrub through the video to select the correct frame if the guess is wrong. The three phases are shown in sequence; the user confirms each one. The confirmed frames are the canonical phase frames for the session — all downstream comparison and persistence use these frames, not the raw Vision output.
 
-### Phase 8 — Reference Frame Backend & iOS Networking ⬜
+### Phase 8 — Reference Frame Backend & iOS Networking ✅
 
 Pivot the FastAPI backend from a coaching rule engine to a reference frame API. The backend hosts a curated library of phase frames from high-quality serves (trophy pose, racket drop, contact point), organized by phase key. Implement a `GET /reference-frames` endpoint that returns the reference frame library (URLs or base64-encoded images). iOS fetches reference frames via URLSession `async/await` at the end of the phase review step. Network required; show a clear error if the fetch fails.
 
