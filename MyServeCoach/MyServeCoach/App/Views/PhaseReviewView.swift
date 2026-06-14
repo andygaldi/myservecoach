@@ -104,27 +104,15 @@ struct PhaseReviewView: View {
 
             Button("Use This Frame") {
                 viewModel.setFrame(at: currentTime)
-            }
-            .buttonStyle(.borderedProminent)
-
-            Spacer()
-
-            if viewModel.currentStepIndex < ServePhase.allCases.count - 1 {
-                Button {
+                if viewModel.currentStepIndex < ServePhase.allCases.count - 1 {
                     viewModel.advance()
-                } label: {
-                    Label("Next", systemImage: "chevron.right")
-                        .labelStyle(.titleAndIcon)
-                }
-                .disabled(viewModel.confirmedTimestamps[viewModel.currentPhase] == nil)
-            } else {
-                Button("Done") {
+                } else {
                     let frames = viewModel.confirmedPhaseFrames()
                     onDone(frames)
                     referenceFrameViewModel = ReferenceFrameViewModel(confirmedFrames: frames)
                 }
-                .disabled(!viewModel.isDoneEnabled)
             }
+            .buttonStyle(.borderedProminent)
         }
         .padding()
     }
