@@ -5,16 +5,14 @@ struct ComparisonView: View {
     let referenceLibrary: ReferenceFrameLibrary
     var onFinish: () -> Void = {}
 
-    private let phaseOrder = ["trophy_pose", "racket_drop", "contact"]
-
     var body: some View {
         ScrollView(.vertical) {
             VStack(spacing: 24) {
-                ForEach(phaseOrder, id: \.self) { key in
+                ForEach(ServePhase.allCases, id: \.self) { phase in
                     ComparisonPhaseRowView(
-                        phaseLabel: ServePhase(backendKey: key)?.rawValue ?? key,
-                        userImage: confirmedFrames.first(where: { $0.phase.backendKey == key })?.thumbnail,
-                        referenceFrames: referenceLibrary.referenceFrames[key] ?? []
+                        phaseLabel: phase.rawValue,
+                        userImage: confirmedFrames.first(where: { $0.phase == phase })?.thumbnail,
+                        referenceFrames: referenceLibrary.referenceFrames[phase.backendKey] ?? []
                     )
                 }
             }
@@ -22,6 +20,7 @@ struct ComparisonView: View {
         }
         .navigationTitle("Serve Comparison")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { onFinish() }

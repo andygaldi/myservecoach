@@ -6,8 +6,9 @@ import Observation
 final class ReferenceFrameViewModel: Identifiable, Hashable {
     let id = UUID()
 
-    static func == (lhs: ReferenceFrameViewModel, rhs: ReferenceFrameViewModel) -> Bool { lhs.id == rhs.id }
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    nonisolated static func == (lhs: ReferenceFrameViewModel, rhs: ReferenceFrameViewModel) -> Bool { lhs.id == rhs.id }
+    nonisolated func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
     let confirmedFrames: [PhaseFrame]
 
     private(set) var library: ReferenceFrameLibrary?
