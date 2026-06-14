@@ -32,7 +32,7 @@ struct PhaseReviewView: View {
             }
         }
         .navigationDestination(item: $referenceFrameViewModel) { vm in
-            ReferenceFrameFetchView(viewModel: vm)
+            ReferenceFrameFetchView(viewModel: vm, onFinish: onCancel)
         }
         .task(id: viewModel.currentStepIndex) {
             await setupOrSeek()

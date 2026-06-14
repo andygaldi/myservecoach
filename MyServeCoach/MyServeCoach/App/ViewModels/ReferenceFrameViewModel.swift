@@ -3,8 +3,11 @@ import Observation
 
 @MainActor
 @Observable
-final class ReferenceFrameViewModel: Identifiable {
+final class ReferenceFrameViewModel: Identifiable, Hashable {
     let id = UUID()
+
+    static func == (lhs: ReferenceFrameViewModel, rhs: ReferenceFrameViewModel) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
     let confirmedFrames: [PhaseFrame]
 
     private(set) var library: ReferenceFrameLibrary?
@@ -24,8 +27,10 @@ final class ReferenceFrameViewModel: Identifiable {
         do {
             let result = try await service.fetchReferenceFrames()
             library = result
-            for frame in result.referenceFrames {
-                print("[ReferenceFrameFetch] \(frame.phase.backendKey): \(frame.imageURL)")
+            for (key, frames) in result.referenceFrames {
+                for frame in frames {
+                    print("[ReferenceFrameFetch] \(key): \(frame.imageURL)")
+                }
             }
         } catch {
             fetchError = error
