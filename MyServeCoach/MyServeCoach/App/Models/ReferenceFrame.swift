@@ -30,7 +30,7 @@ struct ReferenceFrame: Codable {
 }
 
 struct ReferenceFrameLibrary: Codable {
-    let referenceFrames: [ReferenceFrame]
+    let referenceFrames: [String: [ReferenceFrame]]
 
     enum CodingKeys: String, CodingKey {
         case referenceFrames = "reference_frames"
