@@ -5,6 +5,12 @@ struct ReferenceFrame: Codable {
     let label: String
     let imageURL: URL
 
+    init(phase: ServePhase, label: String, imageURL: URL) {
+        self.phase = phase
+        self.label = label
+        self.imageURL = imageURL
+    }
+
     enum CodingKeys: String, CodingKey {
         case phase, label
         case imageURL = "image_url"

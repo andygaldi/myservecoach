@@ -54,6 +54,16 @@ final class PhaseReviewViewModel {
         }
     }
 
+    // Awaits the thumbnail before returning — use on the final phase so
+    // confirmedPhaseFrames() captures the image rather than racing it.
+    func setFrameAndAwaitThumbnail(at time: CMTime) async {
+        let phase = currentPhase
+        confirmedTimestamps[phase] = time
+        if let image = try? await thumbnailGenerator.thumbnail(at: time, for: videoAsset) {
+            confirmedThumbnails[phase] = image
+        }
+    }
+
     func advance() {
         guard currentStepIndex < ServePhase.allCases.count - 1 else { return }
         currentStepIndex += 1

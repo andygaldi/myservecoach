@@ -10,6 +10,8 @@ final class ReferenceFrameViewModel: Identifiable, Hashable {
     nonisolated func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     let confirmedFrames: [PhaseFrame]
+    let inputType: String
+    let videoURL: URL?
 
     private(set) var library: ReferenceFrameLibrary?
     private(set) var fetchError: Error?
@@ -17,8 +19,15 @@ final class ReferenceFrameViewModel: Identifiable, Hashable {
 
     private let service: ReferenceFrameService
 
-    init(confirmedFrames: [PhaseFrame], service: ReferenceFrameService = ReferenceFrameService()) {
+    init(
+        confirmedFrames: [PhaseFrame],
+        inputType: String = "imported",
+        videoURL: URL? = nil,
+        service: ReferenceFrameService = ReferenceFrameService()
+    ) {
         self.confirmedFrames = confirmedFrames
+        self.inputType = inputType
+        self.videoURL = videoURL
         self.service = service
     }
 

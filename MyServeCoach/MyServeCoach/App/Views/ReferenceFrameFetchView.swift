@@ -37,6 +37,8 @@ struct ReferenceFrameFetchView: View {
                 ComparisonView(
                     confirmedFrames: viewModel.confirmedFrames,
                     referenceLibrary: library,
+                    inputType: viewModel.inputType,
+                    videoURL: viewModel.videoURL,
                     onFinish: onFinish
                 )
             }

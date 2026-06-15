@@ -103,13 +103,19 @@ struct PhaseReviewView: View {
             Spacer()
 
             Button("Use This Frame") {
-                viewModel.setFrame(at: currentTime)
                 if viewModel.currentStepIndex < ServePhase.allCases.count - 1 {
+                    viewModel.setFrame(at: currentTime)
                     viewModel.advance()
                 } else {
-                    let frames = viewModel.confirmedPhaseFrames()
-                    onDone(frames)
-                    referenceFrameViewModel = ReferenceFrameViewModel(confirmedFrames: frames)
+                    Task { @MainActor in
+                        await viewModel.setFrameAndAwaitThumbnail(at: currentTime)
+                        let frames = viewModel.confirmedPhaseFrames()
+                        onDone(frames)
+                        referenceFrameViewModel = ReferenceFrameViewModel(
+                            confirmedFrames: frames,
+                            videoURL: (viewModel.videoAsset as? AVURLAsset)?.url
+                        )
+                    }
                 }
             }
             .buttonStyle(.borderedProminent)
