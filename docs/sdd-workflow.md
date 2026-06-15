@@ -54,7 +54,7 @@ Start a fresh session before beginning each feature to avoid carry-over from pre
 
 Ask the agent to identify the next phase from the roadmap, create a branch, and generate the feature spec documents. As the agent asks you to make key decisions, pay attention to potential conflicts or problems. You don't have to agree to the solutions proposed by the agent. Make sure to clarify anything that bothers you.
 
-> Find the next phase on specs/roadmap.md and make a branch, ask me about the feature spec.
+> Find the next phase on specs/roadmap.md and make a branch off develop, ask me about the feature spec.
 > Create:
 > - A new directory YYYY-MM-DD-feature-name under phases/ for this feature work
 > - In there:
