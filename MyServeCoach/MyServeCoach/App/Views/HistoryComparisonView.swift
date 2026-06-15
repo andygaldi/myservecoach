@@ -11,7 +11,7 @@ struct HistoryComparisonView: View {
                     let userImage = record.flatMap { UIImage(data: $0.frameImageData) }
                     let refFrames: [ReferenceFrame] = record?.referenceFrameURLs.compactMap { urlStr in
                         guard let url = URL(string: urlStr) else { return nil }
-                        return ReferenceFrame(phase: phase, label: phase.rawValue, imageURL: url)
+                        return ReferenceFrame(phase: phase, label: record?.label ?? phase.rawValue, imageURL: url)
                     } ?? []
                     ComparisonPhaseRowView(
                         phaseLabel: phase.rawValue,
