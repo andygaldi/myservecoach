@@ -24,6 +24,7 @@ final class PhaseReviewViewModel {
     }
 
     let videoAsset: AVAsset
+    let inputType: String
     private let thumbnailGenerator: FrameThumbnailGenerator
 
     // Overridable in tests: returns the CMTime used when no guess exists for a phase.
@@ -32,11 +33,13 @@ final class PhaseReviewViewModel {
     init(
         guessedFrames: [PhaseFrame],
         videoAsset: AVAsset,
+        inputType: String = "imported",
         thumbnailGenerator: FrameThumbnailGenerator? = nil,
         seekFallback: ((AVAsset) -> CMTime)? = nil
     ) {
         self.guessedFrames = guessedFrames
         self.videoAsset = videoAsset
+        self.inputType = inputType
         // Defaults created here (inside the @MainActor init body) to avoid
         // main-actor isolation warnings on default parameter expressions.
         self.thumbnailGenerator = thumbnailGenerator ?? FrameThumbnailGenerator()

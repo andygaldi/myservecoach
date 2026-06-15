@@ -113,6 +113,7 @@ struct PhaseReviewView: View {
                         onDone(frames)
                         referenceFrameViewModel = ReferenceFrameViewModel(
                             confirmedFrames: frames,
+                            inputType: viewModel.inputType,
                             videoURL: (viewModel.videoAsset as? AVURLAsset)?.url
                         )
                     }

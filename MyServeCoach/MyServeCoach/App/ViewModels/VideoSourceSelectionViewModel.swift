@@ -65,7 +65,7 @@ final class VideoSourceSelectionViewModel {
 
     // Internal so tests can exercise the pipeline path directly.
     @MainActor
-    func runPipeline(on url: URL) async {
+    func runPipeline(on url: URL, inputType: String = "imported") async {
         // Release any temp file left over from a previous incomplete session.
         if let old = pendingVideoURL {
             try? FileManager.default.removeItem(at: old)
@@ -80,7 +80,7 @@ final class VideoSourceSelectionViewModel {
                 let guessedFrames = PhaseGuesser().guess(frames: segments[0])
                 let asset = AVURLAsset(url: url)
                 pendingVideoURL = url
-                phaseReviewViewModel = PhaseReviewViewModel(guessedFrames: guessedFrames, videoAsset: asset)
+                phaseReviewViewModel = PhaseReviewViewModel(guessedFrames: guessedFrames, videoAsset: asset, inputType: inputType)
                 navigateToPhaseReview = true
             }
         } catch {
