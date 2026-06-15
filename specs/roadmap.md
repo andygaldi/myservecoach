@@ -50,7 +50,7 @@ Pivot the FastAPI backend from a coaching rule engine to a reference frame API. 
 
 Dedicated SwiftUI results screen showing the user's confirmed phase frames alongside the fetched reference frames. One row per phase (trophy pose, racket drop, contact point): user's frame on the left, reference frame on the right, phase label above. The layout should make it immediately obvious which part of the motion each pair represents. Displayed immediately after the reference frames are fetched.
 
-### Phase 10 — SwiftData Persistence ⬜
+### Phase 10 — SwiftData Persistence ✅
 
 SwiftData models: `ServeSession` (clip metadata — date, source, input type) with child `ServePhase` records (one per confirmed phase frame, each holding the frame timestamp, the phase key, and the URL/identifier of the reference frame shown). History list screen shows past sessions; tap to re-open the comparison view.
 
