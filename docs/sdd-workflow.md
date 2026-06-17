@@ -126,7 +126,7 @@ You can ask the agent to spawn several sub-agents to do a deep review of the ent
 
 Once satisfied with the changes, mark the phase as complete and merge the work:
 
-> Mark this specs/roadmap.md phase as complete, commit this work, switch to main, and merge this branch, then delete it.
+> Mark this specs/roadmap.md phase as complete, commit this work, open a PR to merge into develop, and merge the PR, then delete this branch.
 
 Note: if large updates were made to the constitution during this phase, it may be better to make those changes in a separate branch.
 
