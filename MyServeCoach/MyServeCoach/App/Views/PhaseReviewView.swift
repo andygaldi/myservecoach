@@ -22,6 +22,7 @@ struct PhaseReviewView: View {
         }
         .navigationBarBackButtonHidden()
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
@@ -87,37 +88,48 @@ struct PhaseReviewView: View {
     }
 
     private var bottomToolbar: some View {
-        HStack {
-            Button {
-                if viewModel.currentStepIndex == 0 {
-                    onCancel()
-                    dismiss()
-                } else {
-                    viewModel.retreat()
+        let isLastStep = viewModel.currentStepIndex == ServePhase.allCases.count - 1
+        let noPhasesConfirmed = viewModel.confirmedTimestamps.isEmpty
+
+        return VStack(spacing: 4) {
+            HStack {
+                Button {
+                    if viewModel.currentStepIndex == 0 {
+                        onCancel()
+                        dismiss()
+                    } else {
+                        viewModel.retreat()
+                    }
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
                 }
-            } label: {
-                Label("Back", systemImage: "chevron.left")
-            }
 
-            Spacer()
+                Spacer()
 
-            Button("Use This Frame") {
-                if viewModel.currentStepIndex < ServePhase.allCases.count - 1 {
-                    viewModel.setFrame(at: currentTime)
-                    viewModel.advance()
-                } else {
-                    Task { @MainActor in
-                        await viewModel.setFrameAndAwaitThumbnail(at: currentTime)
-                        let frames = viewModel.confirmedPhaseFrames()
-                        referenceFrameViewModel = ReferenceFrameViewModel(
-                            confirmedFrames: frames,
-                            inputType: viewModel.inputType,
-                            videoURL: (viewModel.videoAsset as? AVURLAsset)?.url
-                        )
+                Button("Use This Frame") {
+                    if !isLastStep {
+                        viewModel.setFrame(at: currentTime)
+                        viewModel.advance()
+                    } else {
+                        Task { @MainActor in
+                            await viewModel.setFrameAndAwaitThumbnail(at: currentTime)
+                            let frames = viewModel.confirmedPhaseFrames()
+                            referenceFrameViewModel = ReferenceFrameViewModel(
+                                confirmedFrames: frames,
+                                inputType: viewModel.inputType,
+                                videoURL: (viewModel.videoAsset as? AVURLAsset)?.url
+                            )
+                        }
                     }
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(isLastStep && noPhasesConfirmed)
             }
-            .buttonStyle(.borderedProminent)
+            if isLastStep && noPhasesConfirmed {
+                Text("Confirm at least one phase to continue.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding()
     }

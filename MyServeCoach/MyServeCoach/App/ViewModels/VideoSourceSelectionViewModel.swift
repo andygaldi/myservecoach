@@ -15,6 +15,7 @@ final class VideoSourceSelectionViewModel {
     var photoPermissionDenied = false
     var isProcessing = false
     var errorMessage: String?
+    var noPoseDetected = false
     var navigateToPhaseReview = false
     var phaseReviewViewModel: PhaseReviewViewModel?
 
@@ -74,7 +75,7 @@ final class VideoSourceSelectionViewModel {
         do {
             let segments = try await coordinator.run(videoURL: url)
             if segments.isEmpty {
-                errorMessage = "No serves detected. Try a different clip."
+                noPoseDetected = true
                 try? FileManager.default.removeItem(at: url)
             } else {
                 let guessedFrames = PhaseGuesser().guess(frames: segments[0])

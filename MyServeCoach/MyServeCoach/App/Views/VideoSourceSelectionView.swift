@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 
 struct VideoSourceSelectionView: View {
-    @State private var viewModel = VideoSourceSelectionViewModel()
+    @Bindable var viewModel: VideoSourceSelectionViewModel
     @State private var pickerItem: PhotosPickerItem?
     @Environment(\.openURL) private var openURL
 
@@ -50,11 +50,6 @@ struct VideoSourceSelectionView: View {
                 .padding(.horizontal)
                 .disabled(viewModel.isProcessing)
 
-                if viewModel.isProcessing {
-                    ProgressView("Analyzing…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
 
                 Spacer()
             }

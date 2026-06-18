@@ -9,7 +9,11 @@ struct SessionHistoryView: View {
         NavigationStack {
             Group {
                 if sessions.isEmpty {
-                    ContentUnavailableView("No Sessions Yet", systemImage: "clock")
+                    EmptyStateView(
+                        systemImage: "list.bullet.clipboard",
+                        headline: "No sessions yet",
+                        subheadline: "Record or import a serve to get started."
+                    )
                 } else {
                     List {
                         ForEach(sessions) { session in

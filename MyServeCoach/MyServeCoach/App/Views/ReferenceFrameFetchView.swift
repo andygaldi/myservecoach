@@ -5,29 +5,53 @@ struct ReferenceFrameFetchView: View {
     var onFinish: () -> Void = {}
 
     @State private var showComparison = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            if viewModel.isFetching {
-                ProgressView("Loading reference frames…")
-            } else if viewModel.library != nil {
-                Image(systemName: "checkmark.circle")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.green)
-                Text("Reference Frames Ready")
-                    .font(.title2.weight(.bold))
+        ZStack {
+            if viewModel.fetchError != nil {
+                ErrorView(
+                    systemImage: "wifi.exclamationmark",
+                    title: "Couldn't Connect",
+                    message: "Could not reach the server. Check your connection and try again.",
+                    primaryActionLabel: "Retry",
+                    primaryAction: {
+                        viewModel.clearError()
+                        Task { await viewModel.fetch() }
+                    },
+                    secondaryActionLabel: "Cancel",
+                    secondaryAction: {
+                        viewModel.clearError()
+                        dismiss()
+                    }
+                )
             } else {
-                Image(systemName: "arrow.down.circle")
-                    .font(.system(size: 56))
-                    .foregroundStyle(Color.accentColor)
-                Text("Fetching Reference Frames…")
-                    .font(.title2.weight(.bold))
+                VStack(spacing: 20) {
+                    Spacer()
+                    if viewModel.library != nil {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 56))
+                            .foregroundStyle(.green)
+                        Text("Reference Frames Ready")
+                            .font(.title2.weight(.bold))
+                    } else {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 56))
+                            .foregroundStyle(Color.accentColor)
+                        Text("Fetching Reference Frames…")
+                            .font(.title2.weight(.bold))
+                    }
+                    Spacer()
+                }
             }
-            Spacer()
         }
         .navigationTitle("Reference Frames")
         .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if viewModel.isFetching {
+                LoadingOverlayView(message: "Fetching reference frames…")
+            }
+        }
         .task { await viewModel.fetch() }
         .onChange(of: viewModel.library != nil) { _, isReady in
             if isReady { showComparison = true }
@@ -42,16 +66,6 @@ struct ReferenceFrameFetchView: View {
                     onFinish: onFinish
                 )
             }
-        }
-        .alert(
-            "Could not load reference frames. Check your connection and try again.",
-            isPresented: Binding(
-                get: { viewModel.fetchError != nil },
-                set: { if !$0 { viewModel.clearError() } }
-            )
-        ) {
-            Button("Retry") { Task { await viewModel.fetch() } }
-            Button("Dismiss", role: .cancel) { viewModel.clearError() }
         }
     }
 }
