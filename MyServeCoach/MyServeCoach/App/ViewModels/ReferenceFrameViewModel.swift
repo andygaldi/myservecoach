@@ -32,6 +32,7 @@ final class ReferenceFrameViewModel: Identifiable, Hashable {
     }
 
     func fetch() async {
+        guard !isFetching else { return }
         isFetching = true
         fetchError = nil
         do {

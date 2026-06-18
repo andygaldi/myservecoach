@@ -67,6 +67,8 @@ final class VideoSourceSelectionViewModel {
     // Internal so tests can exercise the pipeline path directly.
     @MainActor
     func runPipeline(on url: URL, inputType: String = "imported") async {
+        errorMessage = nil
+        noPoseDetected = false
         // Release any temp file left over from a previous incomplete session.
         if let old = pendingVideoURL {
             try? FileManager.default.removeItem(at: old)

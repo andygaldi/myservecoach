@@ -53,8 +53,8 @@ struct ReferenceFrameFetchView: View {
             }
         }
         .task { await viewModel.fetch() }
-        .onChange(of: viewModel.library != nil) { _, isReady in
-            if isReady { showComparison = true }
+        .onChange(of: viewModel.library) { _, lib in
+            if lib != nil { showComparison = true }
         }
         .navigationDestination(isPresented: $showComparison) {
             if let library = viewModel.library {
