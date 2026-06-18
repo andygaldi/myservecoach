@@ -54,7 +54,7 @@ Dedicated SwiftUI results screen showing the user's confirmed phase frames along
 
 SwiftData models: `ServeSession` (clip metadata — date, source, input type) with child `ServePhase` records (one per confirmed phase frame, each holding the frame timestamp, the phase key, and the URL/identifier of the reference frame shown). History list screen shows past sessions; tap to re-open the comparison view.
 
-### Phase 11 — Lite MVP Polish ⬜
+### Phase 11 — Lite MVP Polish ✅
 
 Loading/progress states during pose estimation and reference frame fetch. Error handling (network failure, no pose detected, all phases unconfirmed). Empty states for history screen. Basic app icon and launch screen. **Lite Version MVP complete.**
 
