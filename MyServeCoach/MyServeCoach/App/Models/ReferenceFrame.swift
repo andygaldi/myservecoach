@@ -1,6 +1,6 @@
 import Foundation
 
-struct ReferenceFrame: Codable {
+struct ReferenceFrame: Codable, Equatable {
     let phase: ServePhase
     let label: String
     let imageURL: URL
@@ -35,7 +35,7 @@ struct ReferenceFrame: Codable {
     }
 }
 
-struct ReferenceFrameLibrary: Codable {
+struct ReferenceFrameLibrary: Codable, Equatable {
     let referenceFrames: [String: [ReferenceFrame]]
 
     enum CodingKeys: String, CodingKey {

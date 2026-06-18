@@ -15,6 +15,7 @@ final class VideoSourceSelectionViewModel {
     var photoPermissionDenied = false
     var isProcessing = false
     var errorMessage: String?
+    var noPoseDetected = false
     var navigateToPhaseReview = false
     var phaseReviewViewModel: PhaseReviewViewModel?
 
@@ -66,6 +67,8 @@ final class VideoSourceSelectionViewModel {
     // Internal so tests can exercise the pipeline path directly.
     @MainActor
     func runPipeline(on url: URL, inputType: String = "imported") async {
+        errorMessage = nil
+        noPoseDetected = false
         // Release any temp file left over from a previous incomplete session.
         if let old = pendingVideoURL {
             try? FileManager.default.removeItem(at: old)
@@ -74,7 +77,7 @@ final class VideoSourceSelectionViewModel {
         do {
             let segments = try await coordinator.run(videoURL: url)
             if segments.isEmpty {
-                errorMessage = "No serves detected. Try a different clip."
+                noPoseDetected = true
                 try? FileManager.default.removeItem(at: url)
             } else {
                 let guessedFrames = PhaseGuesser().guess(frames: segments[0])
