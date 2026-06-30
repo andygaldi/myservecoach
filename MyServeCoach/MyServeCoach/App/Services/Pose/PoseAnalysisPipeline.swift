@@ -1,7 +1,11 @@
 import AVFoundation
 import Foundation
 
-actor PoseAnalysisPipeline {
+protocol PoseAnalyzing: Sendable {
+    func analyze(videoURL: URL) async throws -> [[PoseFrame]]
+}
+
+actor PoseAnalysisPipeline: PoseAnalyzing {
     private let sampler: FrameSamplerService
     private let estimator: PoseEstimationService
     private let segmenter: ServeSegmentationService

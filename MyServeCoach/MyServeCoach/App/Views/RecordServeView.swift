@@ -62,6 +62,7 @@ struct RecordServeView: View {
                 }
             )
         }
+        .toolbar(.hidden, for: .tabBar)
         #endif
     }
 

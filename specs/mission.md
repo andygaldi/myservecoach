@@ -2,53 +2,71 @@
 
 ## Product
 
-**MyServeCoach** — instant serve analysis for competitive tennis players.
+**MyServeCoach** — visual serve comparison for competitive tennis players.
 
 ## Problem
 
-Club-level players (league competitors, tournament regulars) rarely have access to a coach during practice. Serve technique degrades, flaws go unnoticed, and feedback only arrives at scheduled lessons — too infrequently to drive real improvement.
+Club-level players rarely have access to a coach during practice. Serve technique degrades, flaws go unnoticed, and self-assessment is hard because most players have never seen how elite servers look at the same critical moments in the motion.
 
 ## Solution
 
-MyServeCoach lets a player record their serve on an iPhone and receive specific, actionable coaching cues within seconds. No coach needed on court. Free, with no subscription or in-app purchase. No waiting.
+MyServeCoach lets a player record their serve on an iPhone and immediately compare their form to reference serves from high-quality players — frame by frame, at the same critical moments. The app automatically identifies the key phases of the serve (trophy pose, racket drop, contact point) using on-device pose estimation, then lets the user review and correct the detected frames before showing a side-by-side visual comparison. No coaching expertise required; the reference frames speak for themselves.
+
+This is the **Lite Version** of the app — the initial MVP optimized for what current on-device technology can deliver reliably. A future **Pro Version** will add fully automated coaching cues and real-time drill feedback leveraging custom-built off-device pose estimation.
 
 ## User Workflows
 
-### Assessment
-The user provides one continuous video clip of themselves hitting several serves back-to-back — either by recording live with the iPhone camera or by selecting an existing video from their Photos library. When recording live, a brief pose confidence check is shown first: the camera displays a real-time skeleton overlay and warns the user if joint confidence is low, so they can adjust their position or lighting before committing to a full recording. The app then automatically detects and segments the individual serves within the clip, analyzes all of them, and returns a prioritized list of coaching cues covering technique, timing, and mechanics — a holistic read on where to improve. Results are saved to session history for later review.
+### Serve Comparison (Lite Version — MVP)
 
-### Set Goal
-Before recording, the user selects a single technique focus from a curated goal catalog (e.g., "pronation through contact", "trophy pose elbow height"). The goal catalog is a fixed list built into the app, designed to be extensible in future versions. The app records continuously — the camera runs uninterrupted and automatically detects each serve as it happens. After each detected serve it speaks a short audible cue — "good" or a one-line correction — so the player stays focused on the court rather than the screen. The session runs until the user taps "End Session"; the video is then discarded and only per-serve keypoints and pass/fail results are saved. Designed for deliberate-practice drills where fast, eyes-free feedback is essential.
+The user records a serve clip (or selects one from their Photos library) with their iPhone positioned to the open side (perpendicular to the serve direction). The app runs on-device pose estimation to produce an initial guess at the three key serve phases — trophy pose, racket drop, and contact point. The user reviews the guessed frames and can scrub through the video to manually correct any phase frame that landed in the wrong spot. Once confirmed, the app fetches reference frames from the backend — curated frames from high-quality servers at the same three phases — and presents a side-by-side comparison. Results are saved to session history for later review.
 
 ## Target User
 
 Club-level competitive tennis player who:
 - Competes in USTA leagues or local tournaments
 - Practices 2–4× per week, often without a coach present
-- Wants data-driven, specific feedback — not generic tips
+- Wants a concrete visual reference — not generic tips
 - Is comfortable with iOS apps and expects a polished experience
 
 ## Core Value Proposition
 
-**Specific, actionable coaching cues seconds after you record.** Not a score, not a chart — a short list of what to fix and why, grounded in biomechanics (trophy pose, racket drop, contact point). And for focused drills, instant audible feedback after every single serve so you never have to break your rhythm.
+**See how your serve stacks up against high-quality players at every critical moment.** Frame by frame: your trophy pose next to theirs, your racket drop next to theirs, your contact point next to theirs. No coach required, no expertise assumed.
 
-## Future Differentiators (post-MVP)
+## Pro Version (Deferred)
 
+The following workflows are planned for a future Pro Version. They require significantly better pose estimation than Apple Vision currently provides — specifically, reliable background removal and racket-object detection so that automatic serve segmentation works consistently across real-world court environments.
+
+### Assessment (Pro)
+
+One continuous clip of several back-to-back serves. The app automatically detects and segments each serve, analyzes all of them, and returns a prioritized list of specific, actionable coaching cues covering technique, timing, and mechanics — no manual frame selection required.
+
+### Set Goal (Pro)
+
+Continuous recording session focused on a single technique goal (e.g., "trophy pose elbow height"). After each auto-detected serve, the app speaks an audible pass/fail cue so the player stays focused on the court. Designed for deliberate-practice drills.
+
+## Future Differentiators
+
+- **Pro Version — two capture tiers, off-device pose (Mac dev host first, Jetson for court portability)**: The current bottleneck is on-device Vision's inability to handle real court backgrounds and racket detection reliably. The Pro Version runs pose estimation off-device on the Mac development host — the Mac already serves as the Lite MVP backend, so development starts immediately with no new hardware. The product supports two user-selectable capture tiers chosen at session setup: a **single-camera tier** (iPhone only, 2D angles) that ships first with the complete coaching experience, and a **two-camera tier** (iPhone + two USB webcams, true 3D angles via stereo triangulation) that extends the single-camera tier with higher biomechanical precision. Strong 2D pose models (RTMPose/YOLO via ONNX Runtime) and a YOLO object detector (racket + ball) enable background-robust segmentation across both tiers. The final step migrates the proven pipeline to a Jetson Orin Nano for untethered, battery-powered on-court portability. See `specs/offdevice-pipeline.md` for the full architecture.
 - Natural-language coaching powered by LLM (Claude API) for richer, conversational feedback
 - Visual pose skeleton overlay on keyframe thumbnails
 - Longitudinal serve history and trend analysis
-- Dual-iPhone capture: a companion device records from a second angle (e.g., behind + side); frames are synchronized via MultipeerConnectivity and a visual/audio start marker, then triangulated into 3D joint positions — meaningfully improving toss height/lateral position accuracy and enabling true 3D biomechanics
-- Apple Watch integration: remote start/stop of recording from the wrist so the player never has to touch the phone between serves; Watch accelerometer and gyroscope data captured during the serve motion to measure wrist speed and pronation angle through contact
-- External racket sensor support: Bluetooth accelerometer/IMU attached to the racket frame to measure racket-head speed and swing-path angle, filling the gap that camera-only pose estimation cannot reliably capture
+- Serve-type awareness: reference frames and future coaching cues tailored to flat, slice, or kick serve
+- Six-frame serve analysis based on the Kovacs biomechanical model — the Lite MVP covers stages 3, 4, and 6 (Loading/trophy pose, Cocking/racket drop, Contact); the Pro Version adds Start (1), Release (2), and Finish (8) for the complete six-frame model. Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases, not discrete frames. This is built directly into Pro Phase P3 serve segmentation.
+- Apple Watch integration: remote start/stop from the wrist; accelerometer data for wrist pronation
+- External racket sensor support: Bluetooth IMU for racket-head speed and swing-path angle
 
 ## Business Model
 
 Free app, no monetization. No subscription, no in-app purchase, no ads.
 
-## Out of Scope (MVP)
+## Out of Scope (Lite MVP)
 
+- Automated coaching cues or rule-based serve analysis
+- Real-time per-serve feedback or audible cues during drills
+- Pose skeleton overlay on captured frames
+- Pre-recording live pose confidence check
 - Social features, sharing, or leaderboards
 - Multi-sport or non-serve stroke analysis
 - Web or Android clients
 - Cloud video storage
-- User-defined custom goals (goal catalog is fixed; extensibility designed in, not exposed)
+- Additional recording angles (behind-server, closed side) — MVP requires open-side placement only

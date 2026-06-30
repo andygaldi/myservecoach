@@ -89,14 +89,14 @@ struct CameraViewModelTests {
 
     @Test("permissionDenied set correctly from .denied status")
     func permissionDeniedFlag() async {
-        let vm = CameraViewModel(cameraService: MockCameraService(), permissionChecker: { false })
+        let vm = CameraViewModel(cameraService: MockCameraService(), permissionChecker: MockPermissionChecker(granted: false))
         await vm.startSession()
         #expect(vm.permissionDenied == true)
     }
 
     @Test("permissionDenied stays false on authorized status")
     func permissionGrantedFlag() async {
-        let vm = CameraViewModel(cameraService: MockCameraService(), permissionChecker: { true })
+        let vm = CameraViewModel(cameraService: MockCameraService(), permissionChecker: MockPermissionChecker(granted: true))
         await vm.startSession()
         #expect(vm.permissionDenied == false)
     }
@@ -127,7 +127,12 @@ private enum MockError: Error {
     case failed
 }
 
-// MARK: - Mock
+// MARK: - Mocks
+
+private struct MockPermissionChecker: PermissionChecking {
+    let granted: Bool
+    func checkPermission() async -> Bool { granted }
+}
 
 private final class MockCameraService: CameraServiceProtocol {
     let session = AVCaptureSession()

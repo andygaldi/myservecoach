@@ -21,10 +21,10 @@ final class CameraViewModel {
     private(set) var previewItem: PreviewItem?
 
     @ObservationIgnored
-    private let permissionChecker: () async -> Bool
+    private let permissionChecker: any PermissionChecking
 
     private let cameraService: any CameraServiceProtocol
-    private let pipeline = PoseAnalysisPipeline()
+    private let coordinator: PipelineCoordinator
 
     var session: AVCaptureSession { cameraService.session }
     var isRecording: Bool {
@@ -34,14 +34,16 @@ final class CameraViewModel {
 
     init(
         cameraService: any CameraServiceProtocol = CameraService(),
-        permissionChecker: @escaping () async -> Bool = CameraViewModel.defaultPermissionChecker
+        permissionChecker: any PermissionChecking = CameraPermissionChecker(),
+        coordinator: PipelineCoordinator = PipelineCoordinator()
     ) {
         self.cameraService = cameraService
         self.permissionChecker = permissionChecker
+        self.coordinator = coordinator
     }
 
     func startSession() async {
-        let authorized = await permissionChecker()
+        let authorized = await permissionChecker.checkPermission()
         guard authorized else {
             permissionDenied = true
             return
@@ -81,7 +83,8 @@ final class CameraViewModel {
 
     func useClip() {
         if case .previewing(let url) = recordingState {
-            Task { try? await pipeline.analyze(videoURL: url) }
+            let c = coordinator
+            Task { try? await c.run(videoURL: url) }
         }
         previewItem = nil
         recordingState = .idle
@@ -116,19 +119,5 @@ final class CameraViewModel {
         FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("mov")
-    }
-
-    private static let defaultPermissionChecker: () async -> Bool = {
-        let status = AVCaptureDevice.authorizationStatus(for: .video)
-        switch status {
-        case .authorized:
-            return true
-        case .denied, .restricted:
-            return false
-        case .notDetermined:
-            return await AVCaptureDevice.requestAccess(for: .video)
-        @unknown default:
-            return false
-        }
     }
 }

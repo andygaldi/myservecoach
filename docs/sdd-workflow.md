@@ -54,9 +54,9 @@ Start a fresh session before beginning each feature to avoid carry-over from pre
 
 Ask the agent to identify the next phase from the roadmap, create a branch, and generate the feature spec documents. As the agent asks you to make key decisions, pay attention to potential conflicts or problems. You don't have to agree to the solutions proposed by the agent. Make sure to clarify anything that bothers you.
 
-> Find the next phase on specs/roadmap.md and make a branch, ask me about the feature spec.
+> Find the next phase on specs/roadmap.md and make a branch off develop, ask me about the feature spec.
 > Create:
-> - A new directory YYYY-MM-DD-feature-name under specs for this feature work
+> - A new directory YYYY-MM-DD-feature-name under phases/ for this feature work
 > - In there:
 >   - `plan.md` as a series of numbered task groups.
 >   - `requirements.md` for the scope, decisions, context
@@ -90,7 +90,7 @@ Start a fresh session before beginning implementation to avoid carry-over from t
 
 Ask the agent to implement the task groups in your feature's `plan.md`:
 
-> Implement the task groups in plan.md.
+> Implement the [first] task group in plan.md.
 
 Note: sometimes you might choose to do task groups one at a time for smaller commits.
 
@@ -126,7 +126,7 @@ You can ask the agent to spawn several sub-agents to do a deep review of the ent
 
 Once satisfied with the changes, mark the phase as complete and merge the work:
 
-> Mark this specs/roadmap.md phase as complete, commit this work, switch to main, and merge this branch, then delete it.
+> Mark this specs/roadmap.md phase as complete, commit this work, open a PR to merge into develop, and merge the PR, then delete this branch.
 
 Note: if large updates were made to the constitution during this phase, it may be better to make those changes in a separate branch.
 
