@@ -48,11 +48,14 @@ git push origin main
 git push origin <version>
 ```
 
-## 6. Return to develop
+## 6. Return to develop and sync with main
 
 ```bash
 git checkout develop
+git merge main --no-edit
 ```
+
+This fast-forwards develop to include the release merge commit so both branches stay at the same point.
 
 ## 7. iOS app version reminder
 
