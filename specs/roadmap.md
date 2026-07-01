@@ -66,6 +66,12 @@ These phases are organized around two user-selectable capture tiers: a **single-
 
 **Off-Device 2D Foundation (P1–P3)** — replaces on-device Vision with a robust pose and object-detection pipeline. No new hardware needed.
 
+### Pre-Pro Cleanup ⬜
+
+Before starting Pro phases, fix the following items surfaced during loop-based tooling adoption:
+
+- **Stale iOS tests in `MyServeCoachTests.swift`** — three tests reference `Serve` and `RecordServeViewModel` types that no longer exist. These cause `scripts/verify.sh ios` to report build failures unrelated to actual code changes. Delete or rewrite them against the current model.
+
 ### Phase P1 — Off-Device 2D Pose Service (Mac dev host)
 
 iPhone POSTs sampled frames to the Mac backend — the Mac is already the dev server (`BackendConfig.swift` hardcodes its LAN IP); no host migration needed. Mac runs a strong 2D pose model (RTMPose or YOLO-Pose via PyTorch-MPS / CoreML / ONNX Runtime) and returns per-frame keypoints, replacing on-device Vision as the keypoint source. Build the Vision-joint-name → backend-joint-name translation layer: iOS `PoseFrame.joints` uses Vision raw key names (`right_wrist_joint`, etc.); the backend `Frame.keypoints` schema expects `right_wrist`, `left_shoulder`, etc. Wire up the currently-stubbed iOS POST path — `App/Services/Coaching/CoachingService.swift` `LiveCoachingService.analyze()` is a `// TODO` pointing at a non-existent endpoint with a mismatched result type — and reconcile `CoachingResult` with the backend `AnalyzeResponse` in `models.py`.
