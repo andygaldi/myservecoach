@@ -47,6 +47,20 @@ Backend (FastAPI): commands will be added once the backend scaffold is in place.
 
 Print Vision results to the console early on for pose debugging.
 
+## Loop-based Development
+
+Features are built using a three-skill loop:
+
+1. **`/spec`** — find the next `⬜ Pending` phase on `specs/roadmap.md`, create a `feature/` branch, and generate the phase triad (`phases/YYYY-MM-DD-<name>/{requirements,plan,validation}.md`) via guided questions before writing any file.
+2. **`/phase`** — implement the triad task-group by task-group, self-verifying after each group via `scripts/verify.sh <surface>`, iterating on failures (3-retry budget), then running a three-agent deep review (correctness / design / spec compliance) before stopping for human review.
+3. **`/merge`** — mark the phase `✅ Complete` in the roadmap, commit, open a PR into `develop`, squash-merge, and delete the branch.
+
+After `/merge`, `develop` is clean and ready for the next `/spec`.
+
+**Verify oracle:** `scripts/verify.sh backend` (pytest) or `scripts/verify.sh ios` (xcodebuild on iPhone 17 Pro / iOS 26.4 Simulator). Camera-dependent code must be validated on a real device separately.
+
+**Also available:** `/release` to cut a versioned release from `develop` → `main`.
+
 ## Git & Branch Strategy
 
 - `main` — production-ready releases
