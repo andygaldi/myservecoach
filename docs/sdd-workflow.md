@@ -44,9 +44,9 @@ Repeat this section for each phase on the roadmap until the product is complete.
 
 ### Feature Specification
 
-> **Skill:** `/plan`
+> **Skill:** `/spec`
 
-Run `/plan` to start a new feature. The skill finds the next `⬜ Pending` phase on
+Run `/spec` to start a new feature. The skill finds the next `⬜ Pending` phase on
 `specs/roadmap.md`, creates a `feature/` branch off `develop`, and generates the phase
 triad (`phases/YYYY-MM-DD-<name>/{requirements,plan,validation}.md`) — asking you questions
 about scope, decisions, and acceptance criteria **before** writing each file to disk.
@@ -70,7 +70,7 @@ Run `/phase` with the phase folder name. The skill:
 
 If you find issues after review, ask the agent to fix them with both the spec and implementation in sync:
 
-> Update phases/YYYY-MM-DD-feature-name/plan.md and implementation to [Requested change]
+> Update phases/YYYY-MM-DD-feature-name/spec.md and implementation to [Requested change]
 
 ### Feature Validation and Merge
 
@@ -79,7 +79,7 @@ If you find issues after review, ask the agent to fix them with both the spec an
 Once you are satisfied with the implementation and deep-review findings, run `/merge`. The
 skill marks the phase `✅ Complete` in `specs/roadmap.md`, commits, opens a PR into
 `develop`, squash-merges, and deletes the branch — leaving `develop` clean and ready for
-the next `/plan`.
+the next `/spec`.
 
 Note: if large updates were made to the constitution during this phase, it may be better to
 make those changes in a separate branch before running `/merge`.
@@ -138,7 +138,7 @@ The core SDD loop is already automated via three project skills in `.claude/skil
 
 | Skill | Replaces | What it does |
 |---|---|---|
-| `/plan` | Feature Specification (manual prompts) | Generates the phase triad with guided questions before each file write |
+| `/spec` | Feature Specification (manual prompts) | Generates the phase triad with guided questions before each file write |
 | `/phase` | Feature Implementation + Deep Review | Implements task groups, self-verifies via `scripts/verify.sh`, runs three-agent deep review |
 | `/merge` | Complete and Merge (manual steps) | Marks phase complete, commits, PRs into develop, squash-merges, deletes branch |
 

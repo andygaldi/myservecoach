@@ -1,13 +1,13 @@
 ---
 name: merge
-description: Close out a completed phase — mark it done in the roadmap, commit, open a PR into develop, squash-merge, and delete the branch. The final step of the /plan → /phase → /merge loop.
+description: Close out a completed phase — mark it done in the roadmap, commit, open a PR into develop, squash-merge, and delete the branch. The final step of the /spec → /phase → /merge loop.
 ---
 
 # /merge — Complete and Merge
 
 Closes out the current feature branch after a phase has been implemented and reviewed.
-This is the final step of the loop: `/plan → review → /phase → review → /merge`.
-After it runs, `develop` is clean and ready for the next `/plan`.
+This is the final step of the loop: `/spec → review → /phase → review → /merge`.
+After it runs, `develop` is clean and ready for the next `/spec`.
 
 ## When to run
 
@@ -68,7 +68,7 @@ git pull origin develop
 ```
 
 Confirm the merge landed and report the new HEAD commit. The tree is now clean on `develop`
-and ready for the next `/plan`.
+and ready for the next `/spec`.
 
 ## Important
 
