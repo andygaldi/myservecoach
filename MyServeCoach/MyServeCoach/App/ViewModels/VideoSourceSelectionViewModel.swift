@@ -78,6 +78,7 @@ final class VideoSourceSelectionViewModel {
             let segments = try await coordinator.run(videoURL: url)
             if segments.isEmpty {
                 noPoseDetected = true
+                errorMessage = "No serves detected. Try a different clip."
                 try? FileManager.default.removeItem(at: url)
             } else {
                 let guessedFrames = PhaseGuesser().guess(frames: segments[0])

@@ -66,7 +66,7 @@ These phases are organized around two user-selectable capture tiers: a **single-
 
 **Off-Device 2D Foundation (P1–P3)** — replaces on-device Vision with a robust pose and object-detection pipeline. No new hardware needed.
 
-### Pre-Pro Cleanup ⬜
+### Pre-Pro Cleanup ✅
 
 Before starting Pro phases, fix the following items surfaced during loop-based tooling adoption:
 

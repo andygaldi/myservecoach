@@ -10,6 +10,15 @@ Fix the stale iOS test file that breaks `scripts/verify.sh ios`, so the build/te
 - Confirm `scripts/verify.sh ios` passes after the deletion (`xcodebuild test -project MyServeCoach/MyServeCoach.xcodeproj -scheme MyServeCoach -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4" -quiet`).
 - No Xcode project file changes needed — the project uses `PBXFileSystemSynchronizedRootGroup` (modern synchronized groups), so removing the file from disk (`git rm`) is sufficient; there is no manual `project.pbxproj` file reference to clean up.
 
+### Scope Addendum (discovered during implementation)
+
+Deleting `MyServeCoachTests.swift` unmasked a second, pre-existing, unrelated bug that had been hidden behind the compile failure: `VideoSourceSelectionViewModel.runPipeline` set `noPoseDetected = true` on the zero-segments path but never set `errorMessage`, failing two tests (`zeroServesTriggersError`, `handleExportSuccessZeroServes`) in `VideoSourceSelectionViewModelTests.swift`. Since `validation.md`'s Merge Criteria requires `scripts/verify.sh ios` to pass with zero failures, and the spec did not anticipate this conflict, the following were added to close it:
+
+- `VideoSourceSelectionViewModel.swift` — set `errorMessage = "No serves detected. Try a different clip."` alongside `noPoseDetected = true` in the zero-segments branch of `runPipeline`.
+- `ContentView.swift` — the "Try Again" action on the `noPoseDetected` full-screen `ErrorView` now also clears `errorMessage`, preventing a stale inline banner (`VideoSourceSelectionView`'s error text) from surfacing after the overlay is dismissed — the deep review caught that both flags fired together and only one was being cleared.
+
+This is a small, necessary scope expansion to satisfy the phase's own written merge bar, not a deliberate widening of intent.
+
 ## Out of Scope
 
 - Backfilling a test for `ServeSession` default field values — trivial SwiftData init, no logic to protect, would be busywork for this cleanup-only phase.

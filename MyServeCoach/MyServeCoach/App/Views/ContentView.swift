@@ -17,7 +17,10 @@ struct ContentView: View {
                     title: "No Pose Detected",
                     message: "Make sure your full body is visible in the frame and the lighting is adequate.",
                     primaryActionLabel: "Try Again",
-                    primaryAction: { videoSelectionVM.noPoseDetected = false }
+                    primaryAction: {
+                        videoSelectionVM.noPoseDetected = false
+                        videoSelectionVM.errorMessage = nil
+                    }
                 )
             }
         }
