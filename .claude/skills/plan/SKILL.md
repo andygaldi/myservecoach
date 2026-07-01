@@ -1,9 +1,9 @@
 ---
-name: spec
+name: plan
 description: Create the feature spec triad (requirements, plan, validation) for the next pending phase on the roadmap. Asks questions before writing any file to disk, then commits the spec. Pair with /phase to implement.
 ---
 
-# /spec — Feature Specification
+# /plan — Feature Specification
 
 Creates the `phases/YYYY-MM-DD-<name>/` triad for the next pending phase on the roadmap.
 **Always asks questions before writing any file to disk.** Pair with `/phase` to implement.
@@ -14,8 +14,8 @@ No argument needed — the skill finds the next pending phase automatically. Opt
 a phase name to target a specific phase:
 
 ```
-/spec
-/spec P1-offdevice-pose
+/plan
+/plan P1-offdevice-pose
 ```
 
 ## Procedure
