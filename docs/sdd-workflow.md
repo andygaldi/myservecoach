@@ -64,7 +64,7 @@ Ask the agent to identify the next phase from the roadmap, create a branch, and 
 >
 > Refer to specs/mission.md and specs/tech-stack.md for guidance.
 >
-> Important: You *must* use your AskUserQuestion tool, grouped on these 3, before writing to disk.
+> Important: You *must* use your AskUserQuestion tool for each document, before writing to disk.
 
 #### Step 3: Review the Feature Plan, Requirements, and Validation
 
