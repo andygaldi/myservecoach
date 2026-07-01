@@ -59,3 +59,32 @@ def test_keypoint_y_at_confidence_boundary_included():
     frame = make_frame({"right_wrist": {"x": 0.5, "y": 0.7, "confidence": MIN_CONFIDENCE}})
     # MIN_CONFIDENCE < MIN_CONFIDENCE is False, so the value IS returned
     assert keypoint_y(frame, "right_wrist", min_confidence=MIN_CONFIDENCE) == pytest.approx(0.7)
+
+
+# --- joint_xy ---
+
+def test_joint_xy_returns_tuple_when_confidence_sufficient():
+    frame = make_frame({"right_wrist": {"x": 0.3, "y": 0.6, "confidence": 0.9}})
+    assert joint_xy(frame, "right_wrist") == (pytest.approx(0.3), pytest.approx(0.6))
+
+
+def test_joint_xy_returns_none_for_missing_joint():
+    frame = make_frame({})
+    assert joint_xy(frame, "right_wrist") is None
+
+
+def test_joint_xy_returns_none_below_min_confidence():
+    frame = make_frame({"right_wrist": {"x": 0.3, "y": 0.6, "confidence": 0.3}})
+    assert joint_xy(frame, "right_wrist") is None
+
+
+def test_joint_xy_at_confidence_boundary_included():
+    # confidence exactly at threshold IS included — same semantics as keypoint_y
+    frame = make_frame({"right_wrist": {"x": 0.3, "y": 0.6, "confidence": MIN_CONFIDENCE}})
+    assert joint_xy(frame, "right_wrist", min_confidence=MIN_CONFIDENCE) == (pytest.approx(0.3), pytest.approx(0.6))
+
+
+def test_joint_xy_respects_custom_min_confidence():
+    frame = make_frame({"right_wrist": {"x": 0.3, "y": 0.6, "confidence": 0.35}})
+    assert joint_xy(frame, "right_wrist", min_confidence=0.3) == (pytest.approx(0.3), pytest.approx(0.6))
+    assert joint_xy(frame, "right_wrist", min_confidence=0.4) is None

@@ -44,91 +44,45 @@ Repeat this section for each phase on the roadmap until the product is complete.
 
 ### Feature Specification
 
-#### Step 1: Clear the Context
+> **Skill:** `/spec`
 
-Start a fresh session before beginning each feature to avoid carry-over from previous work:
+Run `/spec` to start a new feature. The skill finds the next `⬜ Pending` phase on
+`specs/roadmap.md`, creates a `feature/` branch off `develop`, and generates the phase
+triad (`phases/YYYY-MM-DD-<name>/{requirements,plan,validation}.md`) — asking you questions
+about scope, decisions, and acceptance criteria **before** writing each file to disk.
 
-> `/clear`
-
-#### Step 2: Plan the Next Feature
-
-Ask the agent to identify the next phase from the roadmap, create a branch, and generate the feature spec documents. As the agent asks you to make key decisions, pay attention to potential conflicts or problems. You don't have to agree to the solutions proposed by the agent. Make sure to clarify anything that bothers you.
-
-> Find the next phase on specs/roadmap.md and make a branch off develop, ask me about the feature spec.
-> Create:
-> - A new directory YYYY-MM-DD-feature-name under phases/ for this feature work
-> - In there:
->   - `plan.md` as a series of numbered task groups.
->   - `requirements.md` for the scope, decisions, context
->   - `validation.md` for how to know the implementation succeeded and can be merged
->
-> Refer to specs/mission.md and specs/tech-stack.md for guidance.
->
-> Important: You *must* use your AskUserQuestion tool, grouped on these 3, before writing to disk.
-
-#### Step 3: Review the Feature Plan, Requirements, and Validation
-
-Read through the generated feature spec documents. If you find something wrong, ask the agent to fix it rather than editing directly — this ensures `requirements.md` and `validation.md` stay in sync with `plan.md`. The changes made here in the specs will expand downstream into hundreds of lines of code, so time spent here is well spent.
+Review the generated triad. If you find something wrong, ask the agent to fix it rather
+than editing directly — this keeps all three files in sync. Time spent here expands into
+hundreds of lines of code downstream.
 
 > [Requested change] and update the rest of the feature spec to be in sync.
 
-#### Step 4: Commit the Feature Spec
-
-Once the feature spec is reviewed and refined, commit it to version control:
-
-> Please commit the feature spec.
-
 ### Feature Implementation
 
-#### Step 1: Clear the Context
+> **Skill:** `/phase <YYYY-MM-DD-phase-name>`
 
-Start a fresh session before beginning implementation to avoid carry-over from the planning phase:
+Run `/phase` with the phase folder name. The skill:
+1. Implements task groups from `plan.md` one at a time
+2. Self-verifies after each group via `scripts/verify.sh` (exit 0 = green)
+3. Iterates on failures up to 3 times per group, then stops for you if stuck
+4. When all groups are green, runs a three-agent deep review — **Correctness**, **Design & simplicity**, **Spec compliance** — in parallel
+5. Stops and presents the summary + deep-review findings for your review
 
-> `/clear`
+If you find issues after review, ask the agent to fix them with both the spec and implementation in sync:
 
-#### Step 2: Implement the Feature
+> Update phases/YYYY-MM-DD-feature-name/plan.md and implementation to [Requested change]
 
-Ask the agent to implement the task groups in your feature's `plan.md`:
+### Feature Validation and Merge
 
-> Implement the [first] task group in plan.md.
+> **Skill:** `/merge`
 
-Note: sometimes you might choose to do task groups one at a time for smaller commits.
+Once you are satisfied with the implementation and deep-review findings, run `/merge`. The
+skill marks the phase `✅ Complete` in `specs/roadmap.md`, commits, opens a PR into
+`develop`, squash-merges, and deletes the branch — leaving `develop` clean and ready for
+the next `/spec`.
 
-#### Step 3: Observe and Review Progress
-
-As the agent completes each task group, it will provide a summary of the work performed. Review these summaries to ensure the implementation aligns with the feature spec.
-
-#### Step 4: Commit the Implementation
-
-Once the implementation is complete and reviewed, commit the work:
-
-> Please commit the implementation.
-
-### Feature Validation
-
-#### Step 1: Review the Changes
-
-Go through the changes as you would a code review. Focus on high-level concerns — whether the features work and reflect the spec — rather than implementation details.
-
-#### Step 2: Make Changes
-
-If you find issues, ask the agent to fix them, updating both the spec and the implementation together to keep them in sync:
-
-> Update specs/YYYY-MM-DD-feature-name/plan.md and implementation to [Requested change]
-
-#### Step 3: Deep Review (optional)
-
-You can ask the agent to spawn several sub-agents to do a deep review of the entire project with this feature change. This deep review gives the agent more space to think about the changes, and using sub-agents preserves the main agent's context window rather than polluting it. The agent can usually find important issues during a second look.
-
-> Do a deep review: Spawn multiple subagents to go through all the changes on this branch from three different perspectives and see if anything doesn't make sense, could be better, etc.
-
-#### Step 4: Complete and Merge
-
-Once satisfied with the changes, mark the phase as complete and merge the work:
-
-> Mark this specs/roadmap.md phase as complete, commit this work, open a PR to merge into develop, and merge the PR, then delete this branch.
-
-Note: if large updates were made to the constitution during this phase, it may be better to make those changes in a separate branch.
+Note: if large updates were made to the constitution during this phase, it may be better to
+make those changes in a separate branch before running `/merge`.
 
 ## Project Replanning
 
@@ -180,13 +134,20 @@ Look at the next task in the product roadmap and decide if it still makes sense 
 
 ### Step 5: Automate the Process
 
-Automate the SDD workflow with skills. You can work with your agent to help you create skills. For example, you can create a changelog skill with the following prompt:
+The core SDD loop is already automated via three project skills in `.claude/skills/`:
 
-> I want to keep a CHANGELOG.md in the project root, with headings for dates. If no changelog, examine git commits and add bullets for each date. Then, as we work, we will manually invoke this skill before merging. Help me write a skill for this.
+| Skill | Replaces | What it does |
+|---|---|---|
+| `/spec` | Feature Specification (manual prompts) | Generates the phase triad with guided questions before each file write |
+| `/phase` | Feature Implementation + Deep Review | Implements task groups, self-verifies via `scripts/verify.sh`, runs three-agent deep review |
+| `/merge` | Complete and Merge (manual steps) | Marks phase complete, commits, PRs into develop, squash-merges, deletes branch |
 
-Other ideas for skills include a validation skill that packages updating the README, linting, formatting, test writing, and other quality checks into a repeatable, less manual process.
+Additional skills you can add work the same way — create `.claude/skills/<name>/SKILL.md`
+with `name` and `description` frontmatter. For example, a changelog skill:
 
-Take note of where the skill is located — whether it's in the global skills area for all projects to use, or in the project root for only this project to use.
+> I want to keep a CHANGELOG.md in the project root, with headings for dates. If no changelog, examine git commits and add bullets for each date. Help me write a skill for this.
+
+Personal skills (available across all your projects) go in `~/.claude/skills/`.
 
 ### Step 6: Commit and Merge
 
