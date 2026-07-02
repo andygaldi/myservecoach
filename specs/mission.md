@@ -22,7 +22,7 @@ The product has **three permanent, user-selectable capture modes** (see "Capture
 | **Hardware required** | iPhone + tripod | iPhone + tripod + Jetson | iPhone + tripod + Jetson + 2 cameras |
 | **Serve phase detection** | On-device guess, user manually corrects | Automatic (pose + racket/ball signals) | Automatic (3D pose + racket/ball signals) |
 | **Coaching** | None — visual comparison only | Rule-based cues, Set Goal mode | Rule-based cues (3D-calibrated), Set Goal mode |
-| **Status** | Permanent, built (Phases 1–11) | Planned (roadmap P1–P6) | Planned (roadmap P7–P11) |
+| **Status** | Permanent, built (Phases 1–11) | Planned (roadmap P1–P7) | Planned (roadmap P8–P12) |
 
 **Isolation rule:** Off-device pose, object-detection, and coaching code is additive and mode-gated. It must never run inside, or replace, the Lite path. Lite's only backend dependency is `GET /reference-frames` (a static reference-frame library) — it never calls `/v1/pose` or `/v1/analyze`. Pro 2D and Pro 3D are the only consumers of the off-device endpoints. See `specs/offdevice-pipeline.md` for the full off-device architecture and this same rule restated there.
 
@@ -63,8 +63,9 @@ Continuous recording session focused on a single technique goal (e.g., "trophy p
 - Visual pose skeleton overlay on keyframe thumbnails
 - Longitudinal serve history and trend analysis
 - Serve-type awareness: reference frames and future coaching cues tailored to flat, slice, or kick serve
-- Six-frame serve analysis based on the Kovacs biomechanical model — Lite mode covers stages 3, 4, and 6 (Loading/trophy pose, Cocking/racket drop, Contact); Pro modes add Start (1), Release (2), and Finish (8) for the complete six-frame model. Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases, not discrete frames. This is built directly into Pro Phase P3 serve segmentation.
+- Six-frame serve analysis based on the Kovacs biomechanical model — Lite mode covers stages 3, 4, and 6 (Loading/trophy pose, Cocking/racket drop, Contact); Pro modes add Start (1), Release (2), and Finish (8) for the complete six-frame model. Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases, not discrete frames. This is built directly into Pro Phase P4 serve segmentation.
 - Apple Watch integration: remote start/stop from the wrist; accelerometer data for wrist pronation
+- **Continuous CV model improvement loop (deferred, not scheduled)**: an automated process that periodically reviews recent pose-estimation/object-detection research, trials candidate models or approaches against the committed performance baseline, and adopts a change only on a measured improvement. Not scheduled as a roadmap phase — it structurally depends on Phase P3's benchmark tooling existing first as the comparison oracle, and ideally Phase P18's ground-truth rigor for confident, quantified accept/reject decisions before trusting autonomous changes to production model-serving code. A natural fit for this environment's `/loop`/`/schedule` automation once that tooling and decision criteria are mature.
 - External racket sensor support: Bluetooth IMU for racket-head speed and swing-path angle
 
 ## Business Model
