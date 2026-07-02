@@ -72,7 +72,7 @@ Before starting Pro phases, fix the following items surfaced during loop-based t
 
 - **Stale iOS tests in `MyServeCoachTests.swift`** — three tests reference `Serve` and `RecordServeViewModel` types that no longer exist. These cause `scripts/verify.sh ios` to report build failures unrelated to actual code changes. Delete or rewrite them against the current model.
 
-### Phase P1 — Off-Device 2D Pose Service (Mac dev host)
+### Phase P1 — Off-Device 2D Pose Service (Mac dev host) ✅
 
 Mac backend gets a real 2D pose model (RTMPose via ONNX Runtime) behind a new `POST /v1/pose` endpoint, returning per-frame keypoints — the future keypoint source for Pro 2D/3D mode. Build the Vision-joint-name → backend-joint-name translation layer: iOS `PoseFrame.joints` uses Vision raw key names (`right_wrist_joint`, etc.); the backend `Frame.keypoints` schema expects `right_wrist`, `left_shoulder`, etc. Implement the currently-stubbed `App/Services/Coaching/CoachingService.swift` `LiveCoachingService.analyze()` — a `// TODO` pointing at a non-existent endpoint with a mismatched result type — and reconcile `CoachingResult` with the backend `AnalyzeResponse` in `models.py`. **Service-layer only this phase**: `LiveCoachingService` has no in-app caller yet, and `/v1/pose` has no iOS capture-path caller yet — both stay dormant, unit-tested services. In-app wiring lands on a Pro-mode screen in P5, never on the Lite `PhaseReviewView`.
 

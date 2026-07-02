@@ -39,3 +39,7 @@ class Cue(BaseModel):
 class AnalyzeResponse(BaseModel):
     cues: list[Cue] = Field(default_factory=list)
     summary: str | None = None
+
+
+class PoseResponse(BaseModel):
+    frames: list[Frame]

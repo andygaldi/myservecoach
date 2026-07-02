@@ -13,6 +13,7 @@ Phase P1 is complete when all of the following pass.
 | `pelvis` derived as hip midpoint | Same test file — analogous assertion for `left_hip`/`right_hip`. |
 | Face keypoints dropped | Same test file — result dict has no `nose`/`*_eye`/`*_ear` keys. |
 | No real model load in default suite | Manual check: `grep -rn "Body(" backend/tests/test_pose_model.py` returns nothing; `pytest backend/tests/test_pose_model.py` completes in well under a second with no network activity. |
+| y-axis matches Vision's convention (bottom-left origin, y-up), not OpenCV's (top-left origin, y-down) | `test_y_axis_flipped_to_match_vision_convention` — a point near the top of the source image maps to `y ≈ 1.0`, a point near the bottom maps to `y ≈ 0.0`. **Fixed during deep review**: the initial implementation normalized RTMPose's OpenCV pixel `y` directly (`y / height`), which is the opposite convention from Vision-sourced frames (`PoseEstimationService.swift`, unchanged) that `phases.py`/`angles.py` were built against — this would have silently inverted every y-comparison rule once `/v1/pose` output reaches `/v1/analyze` in a later phase. Fix: `y = 1.0 - (y / height)` in `map_coco17_to_backend_schema`. |
 
 ## Backend — `POST /v1/pose` Endpoint (Group 2)
 
@@ -30,7 +31,7 @@ Phase P1 is complete when all of the following pass.
 |---|---|
 | Real `rtmlib.Body` loads and runs inference without error | `cd backend && RUN_MODEL_INTEGRATION_TESTS=1 pytest tests/test_pose_model_integration.py -v` — record pass/fail and first-run weight-download time/size in this file's notes once run. |
 
-**Run notes:** _(fill in after Group 3's manual step 11 is executed)_
+**Run notes:** Executed `RUN_MODEL_INTEGRATION_TESTS=1 pytest tests/test_pose_model_integration.py -v` — PASSED in 26.48s. First-run download: two ONNX checkpoints from OpenMMLab (`yolox_m` detector, 89.9 MB; `rtmpose-m` pose model, 48.4 MB; ~138 MB total), cached to `~/.cache/rtmlib/hub/checkpoints/`. Subsequent runs load from cache (no re-download). `device="cpu"` (default; `POSE_MODEL_DEVICE` unset).
 
 ## iOS — VisionJointMapper & Types (Group 4)
 
@@ -47,6 +48,8 @@ Phase P1 is complete when all of the following pass.
 | Service targets `BackendConfig.baseURL` + `/v1/analyze`, not the old `/analysis/serve` stub | Code review of `LiveCoachingService.init`/`analyze` — no hardcoded `localhost` |
 | Response decoding correctness | Covered by `CoachingResultDecodingTests` (Group 4) — no separate network-mock suite, consistent with the existing codebase precedent that `ReferenceFrameService`'s live fetch is likewise unit-untested at the network layer |
 | `LiveCoachingService` has no in-app caller | `grep -rn "CoachingViewModel\|LiveCoachingService(" App/Views App/ViewModels` — no matches outside `CoachingService.swift` itself and its own tests |
+
+**Deep-review fixes applied:** (1) `pose.py` no longer inlines `cv2`/`numpy` image-decode logic — moved to `decode_image()` in `pose_model.py`, matching `analyze.py`'s thin-router convention. (2) `LiveCoachingService.analyze()` no longer swallows `DecodingError` into a generic `.decodingFailed` case — it now lets `JSONDecoder` errors propagate natively, matching `ReferenceFrameService`'s pattern; the now-unused `CoachingServiceError.decodingFailed` case was removed. (3) `RTMPoseModel`'s `POSE_MODEL_DEVICE` env-var resolution was left as-is — it's a deliberate decision from `plan.md` (Mac GPU acceleration toggle), not a defect. All three suites (backend 83 passed/1 skipped, iOS 58/58) reverified green after these changes.
 
 ## Integration (Group 6, manual — real device or Simulator + local backend)
 
