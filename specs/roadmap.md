@@ -6,7 +6,7 @@ Legend: ✅ Complete · 🔄 In Progress · ⬜ Pending
 
 ---
 
-## Lite Version MVP
+## Lite Mode (Mode 1 — Permanent)
 
 ### Phase 0 — Project Foundation ✅
 
@@ -36,7 +36,7 @@ Video input selection screen presented at the start of a session. The user choos
 
 Validate and tune the heuristic phase detection logic against real serve footage. Input videos come from two sources: clips recorded directly with the iOS app and external serve videos imported via the Phase 5 Photos library picker — both go through the same on-device Vision pose estimation pipeline. Export the keypoint JSON from the Xcode console and the video file from the device (AirDrop or Files app). A Python script in `backend/tools/` takes those two files, extracts frame images using OpenCV at the timestamps in the keypoint JSON, and produces an HTML report showing thumbnails of every sampled frame alongside highlighted images of the frame identified for each phase (trophy pose, racket drop, contact). No pose estimation happens in the Python tool — it only handles frame extraction and layout. Compare the report against the source video and adjust `phases.py` heuristics until all three phases land on the visually correct frames across a representative set of serves.
 
-> **Outcome / pivot note**: Phase 6 established that on-device Vision pose estimation is not reliable enough for fully automated segmentation across real-world conditions (varied backgrounds, lighting, court lines). Automatic serve detection also cannot reliably identify racket position, which is critical for accurate phase classification. As a result, Phases 7+ pivot to a **Lite Version** model: the app still uses Vision for an initial phase-frame guess, but the user manually reviews and corrects the detected frames before comparison. Automated coaching cues (Assessment, Set Goal workflows) are deferred to a future Pro Version that requires better pose estimation.
+> **Outcome / pivot note**: Phase 6 established that on-device Vision pose estimation is not reliable enough for fully automated segmentation across real-world conditions (varied backgrounds, lighting, court lines). Automatic serve detection also cannot reliably identify racket position, which is critical for accurate phase classification. As a result, Phases 7+ pivot to a **Lite mode**: the app still uses Vision for an initial phase-frame guess, but the user manually reviews and corrects the detected frames before comparison. This is not a stopgap — Lite mode is **Mode 1 of three permanent, user-selectable modes** (see `specs/mission.md` "Capture Modes"). Automated coaching cues (Assessment, Set Goal workflows) are added by Pro 2D and Pro 3D mode (Modes 2 and 3) alongside Lite, not in place of it.
 
 ### Phase 7 — Manual Frame Selection UI ✅
 
@@ -56,13 +56,13 @@ SwiftData models: `ServeSession` (clip metadata — date, source, input type) wi
 
 ### Phase 11 — Lite MVP Polish ✅
 
-Loading/progress states during pose estimation and reference frame fetch. Error handling (network failure, no pose detected, all phases unconfirmed). Empty states for history screen. Basic app icon and launch screen. **Lite Version MVP complete.**
+Loading/progress states during pose estimation and reference frame fetch. Error handling (network failure, no pose detected, all phases unconfirmed). Empty states for history screen. Basic app icon and launch screen. **Lite mode (Mode 1) complete — permanent, not superseded by Pro modes.**
 
 ---
 
-## Pro Version (Deferred)
+## Pro Modes (Deferred) — Mode 2 (Pro 2D) and Mode 3 (Pro 3D)
 
-These phases are organized around two user-selectable capture tiers: a **single-camera tier** (iPhone only, 2D pose) and a **two-camera tier** (stereo rig, 3D pose), chosen at session setup. The single-camera 2D path ships first — end-to-end from foundation through coaching — before any stereo hardware is introduced. The two-camera 3D path then adds a parallel precision track. Both tiers remain available in the final product; 3D does not replace 2D. All phases are developed Mac-hosted (the Mac is already the Lite MVP backend; no new hardware needed to start). The final phase (P16) ports the proven pipeline to a Jetson Orin Nano for untethered on-court portability. P16 is explicitly deferrable; all preceding phases run identically on the Mac. No phases are scheduled yet. See `specs/offdevice-pipeline.md` for the full architecture.
+These phases build **two additional, permanent, user-selectable modes** alongside Lite (Mode 1): **Pro 2D mode** (iPhone only, 2D pose) and **Pro 3D mode** (stereo rig, 3D pose), chosen at session setup alongside Lite. Pro 2D ships first — end-to-end from foundation through coaching — before any stereo hardware is introduced. Pro 3D then adds a parallel precision mode. All three modes remain available in the final product; neither Pro mode replaces Lite, and Pro 3D does not replace Pro 2D. All Pro phases are developed Mac-hosted (the Mac is already the Lite backend; no new hardware needed to start) and are **additive** — they introduce new, mode-gated code paths and must not modify Lite-mode files (`PhaseReviewView`, the Lite pipeline/segmentation services, `ContentView`). The final phase (P16) ports the proven Pro pipeline to a Jetson Orin Nano for untethered on-court portability. P16 is explicitly deferrable; all preceding phases run identically on the Mac. No phases are scheduled yet. See `specs/offdevice-pipeline.md` for the full architecture.
 
 **Off-Device 2D Foundation (P1–P3)** — replaces on-device Vision with a robust pose and object-detection pipeline. No new hardware needed.
 
@@ -72,9 +72,9 @@ Before starting Pro phases, fix the following items surfaced during loop-based t
 
 - **Stale iOS tests in `MyServeCoachTests.swift`** — three tests reference `Serve` and `RecordServeViewModel` types that no longer exist. These cause `scripts/verify.sh ios` to report build failures unrelated to actual code changes. Delete or rewrite them against the current model.
 
-### Phase P1 — Off-Device 2D Pose Service (Mac dev host)
+### Phase P1 — Off-Device 2D Pose Service (Mac dev host) ✅
 
-iPhone POSTs sampled frames to the Mac backend — the Mac is already the dev server (`BackendConfig.swift` hardcodes its LAN IP); no host migration needed. Mac runs a strong 2D pose model (RTMPose or YOLO-Pose via PyTorch-MPS / CoreML / ONNX Runtime) and returns per-frame keypoints, replacing on-device Vision as the keypoint source. Build the Vision-joint-name → backend-joint-name translation layer: iOS `PoseFrame.joints` uses Vision raw key names (`right_wrist_joint`, etc.); the backend `Frame.keypoints` schema expects `right_wrist`, `left_shoulder`, etc. Wire up the currently-stubbed iOS POST path — `App/Services/Coaching/CoachingService.swift` `LiveCoachingService.analyze()` is a `// TODO` pointing at a non-existent endpoint with a mismatched result type — and reconcile `CoachingResult` with the backend `AnalyzeResponse` in `models.py`.
+Mac backend gets a real 2D pose model (RTMPose via ONNX Runtime) behind a new `POST /v1/pose` endpoint, returning per-frame keypoints — the future keypoint source for Pro 2D/3D mode. Build the Vision-joint-name → backend-joint-name translation layer: iOS `PoseFrame.joints` uses Vision raw key names (`right_wrist_joint`, etc.); the backend `Frame.keypoints` schema expects `right_wrist`, `left_shoulder`, etc. Implement the currently-stubbed `App/Services/Coaching/CoachingService.swift` `LiveCoachingService.analyze()` — a `// TODO` pointing at a non-existent endpoint with a mismatched result type — and reconcile `CoachingResult` with the backend `AnalyzeResponse` in `models.py`. **Service-layer only this phase**: `LiveCoachingService` has no in-app caller yet, and `/v1/pose` has no iOS capture-path caller yet — both stay dormant, unit-tested services. In-app wiring lands on a Pro-mode screen in P5, never on the Lite `PhaseReviewView`.
 
 ### Phase P2 — Racket & Ball Object Detection
 
@@ -82,7 +82,7 @@ YOLO-class object detector on the Mac for the racket (and ball). Vision never su
 
 ### Phase P3 — Robust Automatic Multi-Stage Serve Segmentation
 
-Combine off-device pose + racket-position signals + background handling (lighting and court-line robustness) to achieve reliable automatic segmentation detecting the six Kovacs key frames directly — the core capability Phase 6 concluded on-device Vision could not provide. Removes the Lite MVP's mandatory manual-frame-correction step (Phase 7 UI becomes optional QA rather than required). Re-validate using the `backend/tools/calibration_report.py` HTML-report workflow against the same serve footage used in Phase 6. Extends `backend/app/engine/phases.py` from 3 to 6 detected frames.
+Combine off-device pose + racket-position signals + background handling (lighting and court-line robustness) to achieve reliable automatic segmentation detecting the six Kovacs key frames directly — the core capability Phase 6 concluded on-device Vision could not provide. In Pro 2D/3D mode, this automatic segmentation replaces the manual-correction step (Phase 7 UI becomes optional QA in Pro modes rather than required). **Lite mode keeps mandatory manual frame correction permanently — this phase does not touch the Lite `PhaseReviewView` or its flow; it only affects the Pro 2D/3D pipeline.** Re-validate using the `backend/tools/calibration_report.py` HTML-report workflow against the same serve footage used in Phase 6. Extends `backend/app/engine/phases.py` from 3 to 6 detected frames.
 
 The six detected frames map to the following stages of the Kovacs & Ellenbecker (2011) biomechanical model — *A Biomechanical Review of the Tennis Serve* ([PMC3445225](https://pmc.ncbi.nlm.nih.gov/articles/PMC3445225/)):
 
@@ -97,45 +97,49 @@ The six detected frames map to the following stages of the Kovacs & Ellenbecker 
 | 7 | Deceleration | Arm and trunk deceleration | Eccentric shoulder distraction 0.5–0.75× body weight; up to 300 N·m trunk-arm deceleration torque | *(dynamic phase — not a discrete frame)* |
 | 8 | Finish | Front-foot landing | Horizontal braking forces; eccentric lower-body loading | *(new)* |
 
-Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases between key frames, not single poses — they are not detected as discrete frames. The Lite MVP captured stages 3, 4, and 6 only (trophy pose, racket drop, contact point). This phase adds Start, Release, and Finish, completing the six-frame model. Frame detection runs on 2D pose + racket signals and works for both the single-camera and two-camera tiers.
+Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases between key frames, not single poses — they are not detected as discrete frames. Lite mode captures stages 3, 4, and 6 only (trophy pose, racket drop, contact point) and continues to do so permanently. This phase adds Start, Release, and Finish for Pro 2D/3D mode, completing the six-frame model there. Frame detection runs on 2D pose + racket signals and works for both Pro 2D and Pro 3D mode.
 
-**Single-Camera Coaching — 2D tier (P4–P6)** — the first fully usable Pro experience; iPhone-only, no stereo hardware needed. The coaching engine built in Lite Phases 3–4 is dormant in the Lite MVP; these phases activate it on 2D angles.
+**Pro 2D mode coaching (P4–P6)** — the first fully usable Pro experience; iPhone-only, no stereo hardware needed. The coaching engine built in Lite Phases 3–4 is dormant in Lite mode; these phases activate it for Pro 2D mode. **A mode-selection step (Lite / Pro 2D / Pro 3D) at session setup gates which pipeline runs; Pro coaching screens introduced by P5+ are separate from the Lite `PhaseReviewView`/comparison flow and do not modify it.**
 
 ### Phase P4 — Rule Calibration (2D)
 
-Ground the `rules.json` thresholds in real 2D-measured joint angles now that reliable phase frames are available from P3. Run `backend/tools/analyze_angles.py` against the validated P3 phase frames and compare measured 2D joint angles against the current thresholds; update, add, remove, or re-weight rules accordingly. Note the 2D-projection caveat — foreshortening from a single camera systematically underestimates angles like shoulder external rotation; these thresholds serve the single-camera tier and are re-derived on 3D angles in Phase P9.
+Ground the `rules.json` thresholds in real 2D-measured joint angles now that reliable phase frames are available from P3. Run `backend/tools/analyze_angles.py` against the validated P3 phase frames and compare measured 2D joint angles against the current thresholds; update, add, remove, or re-weight rules accordingly. Note the 2D-projection caveat — foreshortening from a single camera systematically underestimates angles like shoulder external rotation; these thresholds serve Pro 2D mode and are re-derived on 3D angles for Pro 3D mode in Phase P9.
 
 ### Phase P5 — Automated Coaching Cues / Assessment (2D)
 
-For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receive and display the `AnalyzeResponse` cue list on a coaching-results screen. Add SwiftData fields to persist cues alongside the phase frames already stored. Requires P3 (automatic segmentation) and P4 (calibrated 2D rules).
+**Builds the mode-selector, first appearance (2-way).** This is the first phase with any Pro-facing screen, so it also owns building the session-setup mode-selection step that gates entry to it: a **Lite / Pro 2D** choice shown at session start (natural insertion point: at or just before `VideoSourceSelectionView`, today's session entry). Selecting **Lite** routes into the existing, byte-for-byte-unchanged Lite flow (`VideoSourceSelectionView` → pipeline → `PhaseReviewView` → comparison) — the selector must not modify `PhaseReviewView`, the Lite pipeline/segmentation services, or the internals of `VideoSourceSelectionView`'s Lite path; if a wrapper/parent view is introduced at session entry, Lite's downstream views are navigated to unchanged. Selecting **Pro 2D** routes into the new Pro pipeline described below. (Pro 3D is not an option yet — added in P7.) The exact UI form and default/persistence behavior (segmented control vs. first-run screen, remembered-per-user vs. per-session) are decided during this phase's `/spec`.
+
+For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receive and display the `AnalyzeResponse` cue list on a **new, Pro-mode-gated coaching-results screen** — distinct from the Lite comparison screen, reachable only when Pro 2D mode is selected via the selector built above. Wires `LiveCoachingService.analyze()` (built service-layer-only in P1) into the app for the first time. Add SwiftData fields to persist cues alongside the phase frames already stored. Requires P3 (automatic segmentation) and P4 (calibrated 2D rules).
 
 ### Phase P6 — Goal Library & Set Goal Session Mode (2D)
 
 Continuous recording session with automatic per-serve detection (P3) and per-serve analysis. Define a goal catalog; backend returns `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. Deliver audible pass/fail feedback via `AVSpeechSynthesizer` so the player can stay focused on the court between serves. Mac-hosted; becomes field-portable after the P16 Jetson migration.
 
-**Two-Camera 3D Foundation (P7–P8)** — adds a stereo rig and true 3D angles. Mac + two USB webcams; no Jetson hardware needed.
+**Pro 3D Mode Foundation (P7–P8)** — adds a stereo rig and true 3D angles for Mode 3 (Pro 3D). Mac + two USB webcams; no Jetson hardware needed.
 
 ### Phase P7 — Stereo Camera Rig & Calibration
 
-Two USB webcams on the Mac; OpenCV stereo intrinsics/extrinsics calibration (`cv2.calibrateCamera` per camera, then `cv2.stereoCalibrate`); synchronized dual capture; calibration matrices saved to `stereoCalibration.json` and loaded at backend startup. Introduces `backend/tools/stereo_calibrate.py`. Proves the stereo geometry without any Jetson hardware — the iPhone shifts from primary camera to controller and display on this path. Adds a camera-mode selection step at session setup (single-camera 2D vs. two-camera 3D) that gates which capture pipeline and coaching tier runs downstream.
+Two USB webcams on the Mac; OpenCV stereo intrinsics/extrinsics calibration (`cv2.calibrateCamera` per camera, then `cv2.stereoCalibrate`); synchronized dual capture; calibration matrices saved to `stereoCalibration.json` and loaded at backend startup. Introduces `backend/tools/stereo_calibrate.py`. Proves the stereo geometry without any Jetson hardware — the iPhone shifts from primary camera to controller and display on this path.
+
+**Extends the mode-selector to three-way.** Adds **Pro 3D** as a third option to the Lite/Pro-2D selector built in P5, gating which of the three capture pipelines and coaching modes runs downstream. This must not alter the Lite or Pro-2D routes already validated in P5 — the extension adds a third branch to the existing selector, it does not restructure the selector or either existing route.
 
 ### Phase P8 — 3D Pose Triangulation & Angles
 
-Triangulate 2D keypoints from both stereo views into 3D joint coordinates using `cv2.triangulatePoints`. Compute true 3D biomechanical angles — for example, the Kovacs 172° shoulder external rotation target is measured in 3D; 2D projection from a single angle systematically underestimates it. Add `compute_angle_3d` to `backend/app/engine/angles.py` *alongside* the existing 2D `compute_angle` — both functions are retained; rules consume whichever angle source matches the active tier.
+Triangulate 2D keypoints from both stereo views into 3D joint coordinates using `cv2.triangulatePoints`. Compute true 3D biomechanical angles — for example, the Kovacs 172° shoulder external rotation target is measured in 3D; 2D projection from a single angle systematically underestimates it. Add `compute_angle_3d` to `backend/app/engine/angles.py` *alongside* the existing 2D `compute_angle` — both functions are retained; rules consume whichever angle source matches the active mode.
 
-**Two-Camera Coaching — 3D precision tier (P9–P11)** — each phase extends its 2D counterpart; the shared cue UI and goal engine carry over, with the 3D angle source and re-calibrated thresholds as the key differences.
+**Pro 3D Mode Coaching (P9–P11)** — each phase extends its Pro 2D counterpart; the shared cue UI and goal engine carry over, with the 3D angle source and re-calibrated thresholds as the key differences.
 
 ### Phase P9 — Rule Calibration (3D)
 
-Re-run `backend/tools/analyze_angles.py` against 3D angles from P8 to derive 3D-calibrated thresholds. Add a 3D-tier threshold variant to `rules.json` alongside the existing 2D-tier thresholds (similar structure to the per-serve-type variants introduced in P13). The precision tier now has rules that exploit the full biomechanical fidelity of triangulated joint positions.
+Re-run `backend/tools/analyze_angles.py` against 3D angles from P8 to derive 3D-calibrated thresholds. Add a Pro-3D-mode threshold variant to `rules.json` alongside the existing Pro-2D-mode thresholds (similar structure to the per-serve-type variants introduced in P13). Pro 3D mode now has rules that exploit the full biomechanical fidelity of triangulated joint positions.
 
 ### Phase P10 — Coaching Cues (3D)
 
-Route the two-camera 3D tier through the same coaching-cue UI introduced in P5, backed by the 3D-calibrated rules from P9. Surface the active capture tier (2D or 3D) on the results screen so the user understands which fidelity produced the cues.
+Route Pro 3D mode through the same coaching-cue UI introduced in P5, backed by the 3D-calibrated rules from P9. Surface the active mode (Pro 2D or Pro 3D) on the results screen so the user understands which fidelity produced the cues.
 
 ### Phase P11 — Goal Library & Set Goal Session Mode (3D)
 
-Extend the Set-Goal session mode from P6 to the 3D tier. Enables goals that only 3D can reliably measure — for example, true shoulder external rotation approaching the 172° Kovacs target — without the projection ambiguity of a single-camera view.
+Extend the Set-Goal session mode from P6 to Pro 3D mode. Enables goals that only 3D can reliably measure — for example, true shoulder external rotation approaching the 172° Kovacs target — without the projection ambiguity of a single-camera view.
 
 **Enhancements (P12–P15)** — additional capabilities layered on the foundation; each is independently testable and can be tackled in any order.
 
@@ -145,7 +149,7 @@ Pre-recording skeleton overlay on the live iPhone feed with a joint-confidence w
 
 ### Phase P13 — Serve-Type Awareness
 
-Serve-type selection (flat, slice, kick) before recording. Backend applies serve-type-specific rule thresholds. `rules.json` restructured for per-type variants alongside the per-tier variants introduced in P9.
+Serve-type selection (flat, slice, kick) before recording. Backend applies serve-type-specific rule thresholds. `rules.json` restructured for per-type variants alongside the per-mode (Pro 2D / Pro 3D) variants introduced in P9. Pro-mode only — Lite mode has no rule thresholds to vary.
 
 ### Phase P14 — Multi-Angle Support
 
@@ -153,7 +157,7 @@ Pipeline extended to support behind-server and closed-side recording angles. Ang
 
 ### Phase P15 — LLM Coaching Cues
 
-Integrate the Claude API in the backend. Pass rule violations and keypoints to Claude to generate natural-language coaching paragraphs. Displayed as an expandable section below the structured cue list on the results screen. Tier-agnostic — enriches whichever capture tier is active. Explicitly the lowest-priority feature phase; can be skipped if the structured cue list is sufficient.
+Integrate the Claude API in the backend. Pass rule violations and keypoints to Claude to generate natural-language coaching paragraphs. Displayed as an expandable section below the structured cue list on the results screen. Mode-agnostic within Pro — enriches whichever of Pro 2D / Pro 3D mode is active; not applicable to Lite mode (no coaching cues exist there). Explicitly the lowest-priority feature phase; can be skipped if the structured cue list is sufficient.
 
 **On-Court Deployment (P16)** — the full pipeline is developed and validated Mac-hosted. This phase is a pure portability migration with no algorithm changes.
 
