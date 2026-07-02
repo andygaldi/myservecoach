@@ -1,6 +1,8 @@
 # Off-Device Pose Pipeline
 
-Architecture reference for the off-device pipeline that underpins the Pro Version (roadmap phases P1–P15). The final phase (P16) migrates the pipeline to the Jetson Orin Nano for court portability.
+Architecture reference for the off-device pipeline that powers **Pro 2D mode and Pro 3D mode only** (roadmap phases P1–P15) — two of the product's three permanent, user-selectable capture modes (see `specs/mission.md` "Capture Modes"). The final phase (P16) migrates the pipeline to the Jetson Orin Nano for court portability.
+
+**Lite mode is out of scope for this document and this pipeline.** Lite mode is on-device-only (Apple Vision) and never calls any endpoint described here (`/v1/pose`, `/v1/analyze`) — its only backend dependency is the static `GET /reference-frames` library. Off-device code is additive and mode-gated: every phase in this pipeline introduces new, Pro-mode-only code paths and must never modify Lite-mode files (`PhaseReviewView`, the Lite pipeline/segmentation services, `ContentView`). This rule constrains all phases P1–P16.
 
 ---
 
@@ -17,23 +19,23 @@ The pipeline is **host-agnostic** — the same model weights, the same `backend/
 | **Network** | Home/local Wi-Fi (iPhone → Mac LAN IP) | Court Wi-Fi or Jetson-broadcast hotspot |
 | **Phase** | P1–P15 (no hardware purchase required) | P16 (when portability is needed) |
 
-The Mac is already the backend dev server for the Lite MVP (`BackendConfig.swift` hardcodes a Mac LAN IP), so **P1 starts immediately with no new hardware**. The Jetson is purchased and configured only when you want untethered on-court use (P16 — deferrable to any point).
+The Mac is already the backend dev server for Lite mode (`BackendConfig.swift` hardcodes a Mac LAN IP), so **P1 starts immediately with no new hardware**. The Jetson is purchased and configured only when you want untethered on-court use (P16 — deferrable to any point).
 
 ---
 
-## Capture Tiers — Single-Camera 2D vs. Two-Camera 3D
+## Capture Modes — Pro 2D vs. Pro 3D
 
-The Pro Version supports two user-selectable capture tiers chosen at session setup:
+(Lite mode, the third permanent capture mode, is on-device-only and has no entry here — see `specs/mission.md` "Capture Modes" for all three.)
 
-| | Single-camera (2D) | Two-camera (3D) |
+| | Pro 2D mode | Pro 3D mode |
 |---|---|---|
 | **Camera setup** | iPhone only | iPhone (controller/display) + 2× USB webcams on Mac (or CSI cameras on Jetson) |
 | **Pose angles** | 2D joint angles (projection-limited) | True 3D biomechanical angles via triangulation |
-| **Rule thresholds** | 2D-calibrated (`rules.json`, P4) | 3D-calibrated (`rules.json` precision-tier variant, P9) |
+| **Rule thresholds** | 2D-calibrated (`rules.json`, P4) | 3D-calibrated (`rules.json` precision variant, P9) |
 | **Roadmap phases** | Foundation P1–P3; coaching P4–P6 | Foundation P7–P8; coaching P9–P11 |
 | **First available** | P6 | P11 |
 
-The single-camera 2D path ships first. The two-camera 3D path extends it — both tiers persist in the product. `backend/app/engine/angles.py` retains the 2D `compute_angle` **and** adds `compute_angle_3d` (see P8); rules select the angle source per the active tier.
+Pro 2D mode ships first. Pro 3D mode extends it — both modes persist in the product alongside Lite mode; neither replaces another. `backend/app/engine/angles.py` retains the 2D `compute_angle` **and** adds `compute_angle_3d` (see P8); rules select the angle source per the active mode. A session-setup mode-selection step (Lite / Pro 2D / Pro 3D, generalized in P7) gates which of the three pipelines runs.
 
 ---
 
@@ -76,7 +78,7 @@ iPhone (capture + display)
         │  local Wi-Fi (iPhone and Mac on same network)
         ▼
 Mac M3 Max
-  ├── FastAPI backend (already the Lite MVP dev server)
+  ├── FastAPI backend (already the Lite-mode dev server)
   ├── 2D pose model (ONNX Runtime / PyTorch-MPS)
   ├── YOLO object detector (ONNX Runtime / PyTorch-MPS)
   └── 2× USB webcams (stereo rig, P7+)
@@ -130,7 +132,7 @@ No dedicated background-removal model needed initially — off-device pose model
 
 ## Data Contract
 
-### Current state (Lite MVP)
+### Current state (Lite mode)
 
 The only live iOS→backend call is `GET /reference-frames`. The coaching POST path is stubbed:
 - `App/Services/Coaching/CoachingService.swift` `LiveCoachingService.analyze()` is `// TODO`
@@ -217,7 +219,7 @@ The stereo geometry and triangulation math are identical on Mac and Jetson — o
 
 ### Stereo rig setup
 
-**Mac (P4):** Two USB webcams placed at fixed positions — one at the open side (current Lite MVP angle: perpendicular to the serve, player's hitting arm visible), one at approximately 45° or the behind-server angle. Known baseline distance; fixed relative positions per session.
+**Mac (P4):** Two USB webcams placed at fixed positions — one at the open side (current Lite-mode angle: perpendicular to the serve, player's hitting arm visible), one at approximately 45° or the behind-server angle. Known baseline distance; fixed relative positions per session.
 
 **Jetson (P16):** Same physical arrangement, cameras on the Jetson's CSI ports instead of USB.
 
@@ -247,7 +249,7 @@ Joint confidence in 3D is the minimum of the two 2D confidence scores. Joints vi
 
 ### 3D angle computation
 
-Add `compute_angle_3d` to `backend/app/engine/angles.py` *alongside* the existing 2D `compute_angle` — both functions are retained so both tiers can coexist (P8). Rules consume whichever angle source matches the active capture tier:
+Add `compute_angle_3d` to `backend/app/engine/angles.py` *alongside* the existing 2D `compute_angle` — both functions are retained so both Pro modes can coexist (P8). Rules consume whichever angle source matches the active mode:
 
 ```python
 def compute_angle_3d(a: tuple, b: tuple, c: tuple) -> float:
@@ -258,7 +260,7 @@ def compute_angle_3d(a: tuple, b: tuple, c: tuple) -> float:
     return float(np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0))))
 ```
 
-`rules.json` grows per-tier threshold variants: 2D-calibrated thresholds (P4) and 3D-calibrated thresholds (P9), alongside the per-serve-type variants introduced in P13.
+`rules.json` grows per-mode threshold variants: 2D-calibrated thresholds for Pro 2D mode (P4) and 3D-calibrated thresholds for Pro 3D mode (P9), alongside the per-serve-type variants introduced in P13.
 
 ---
 
@@ -271,7 +273,7 @@ def compute_angle_3d(a: tuple, b: tuple, c: tuple) -> float:
 | Serve phase detection | `backend/app/engine/phases.py` | Extended in P3 from 3 → 6 detected frames |
 | Rule engine | `backend/app/engine/rules.py` + `rules.json` | 2D-calibrated in P4; 3D-calibrated in P9; per-serve-type variants in P13 |
 | Angle utilities | `backend/app/engine/angles.py` | 2D `compute_angle` retained; `compute_angle_3d` added alongside in P8 |
-| Analyze endpoint | `backend/app/routers/analyze.py` | Fully implemented; dormant in Lite MVP; activated in P5 |
+| Analyze endpoint | `backend/app/routers/analyze.py` | Fully implemented; dormant until Pro 2D mode activates it in P5; never called by Lite mode |
 | Calibration tool | `backend/tools/calibration_report.py` | Re-used in P3 re-validation |
 
 ### Newly introduced (P1–P5 work)
