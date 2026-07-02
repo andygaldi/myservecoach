@@ -1,5 +1,7 @@
 # Phase P1 — Plan
 
+> **Lite-isolation note:** `LiveCoachingService` is implemented and unit-tested in this phase but has **no in-app caller**. It is a dormant Pro-mode service — wiring it into a Pro-gated coaching screen happens in Phase P5, behind mode selection. It must never be called from the Lite flow (`PhaseReviewView.swift` or anything reachable from it). No task group in this plan modifies `PhaseReviewView.swift` or any other Lite-path file.
+
 ## Group 1 — Backend: RTMPose Model Service (surface: `backend`)
 
 1. Add `rtmlib` to `backend/requirements.txt` (verified installable, current `0.0.15`); `pip install -r backend/requirements.txt` in `backend/.venv`.
@@ -146,63 +148,10 @@
     - On a non-2xx HTTP status, throw `CoachingServiceError.networkError("HTTP \(status)")`. On decode failure, throw `CoachingServiceError.decodingFailed`.
 18. There is no existing URLSession-mocking test pattern in this codebase (`ReferenceFrameService`'s live fetch is likewise untested at the network layer — only its Codable types are, in `ReferenceFrameCodableTests.swift`). Follow that same precedent rather than introducing a new mocking harness: `CoachingResultDecodingTests.swift` (Group 4, task 15) covers response decoding; `LiveCoachingService`'s actual network behavior is validated by the Group 7 manual integration smoke test against the real running backend. No `CoachingServiceTests.swift` network-mock file is needed.
 
-## Group 6 — iOS: Wire Into App Flow (surface: `ios`)
+## Group 6 — Integration Smoke Test (manual, both surfaces)
 
-19. Add `func extractCGImage(at time: CMTime, for asset: AVAsset) async throws -> CGImage` to `FrameThumbnailGenerator.swift` (or a small new `App/Services/Video/` helper) — the existing `thumbnail(at:for:)` already produces a `CGImage` internally via `AVAssetImageGenerator.image(at:)` before wrapping it in `UIImage`; expose that intermediate result rather than duplicating the generator setup.
-20. Create `App/ViewModels/CoachingViewModel.swift`:
-    ```swift
-    @MainActor
-    @Observable
-    final class CoachingViewModel {
-        private(set) var result: CoachingResult?
-        private(set) var fetchError: Error?
-        private(set) var isAnalyzing = false
-
-        private let confirmedFrames: [PhaseFrame]
-        private let videoAsset: AVAsset
-        private let poseEstimationService: PoseEstimationService
-        private let coachingService: CoachingServiceProtocol
-
-        init(
-            confirmedFrames: [PhaseFrame],
-            videoAsset: AVAsset,
-            poseEstimationService: PoseEstimationService = PoseEstimationService(),
-            coachingService: CoachingServiceProtocol = LiveCoachingService()
-        ) {
-            self.confirmedFrames = confirmedFrames
-            self.videoAsset = videoAsset
-            self.poseEstimationService = poseEstimationService
-            self.coachingService = coachingService
-        }
-
-        func analyze() async {
-            isAnalyzing = true
-            fetchError = nil
-            do {
-                var backendFrames: [BackendFrame] = []
-                for phaseFrame in confirmedFrames {
-                    guard let cgImage = try? await FrameThumbnailGenerator().extractCGImage(at: phaseFrame.timestamp, for: videoAsset) else { continue }
-                    guard let poseFrame = poseEstimationService.detectPose(at: phaseFrame.timestamp, in: cgImage) else { continue }
-                    backendFrames.append(VisionJointMapper.translate(poseFrame))
-                }
-                let result = try await coachingService.analyze(frames: backendFrames, sessionId: nil)
-                self.result = result
-                print("[CoachingAnalyze] cues: \(result.cues.count), summary: \(result.summary ?? "none")")
-            } catch {
-                fetchError = error
-                print("[CoachingAnalyze] failed: \(error)")
-            }
-            isAnalyzing = false
-        }
-    }
-    ```
-21. In `PhaseReviewView.swift`, in the final-step branch of the `Button("Use This Frame")` action (where `referenceFrameViewModel` is currently constructed, ~lines 113–123), also construct a `CoachingViewModel(confirmedFrames: frames, videoAsset: viewModel.videoAsset)` and fire `Task { await coachingViewModel.analyze() }` — fire-and-forget, console-only; does not block, gate, or otherwise interact with the existing `referenceFrameViewModel` navigation.
-22. Write `MyServeCoachTests/CoachingViewModelTests.swift`: inject a mock `CoachingServiceProtocol` and a `PoseEstimationService` (or its dependency) that returns deterministic poses; assert `analyze()` calls the mock with correctly-translated `BackendFrame`s and populates `result`; assert a thrown error from the mock service populates `fetchError` instead of crashing.
-
-## Group 7 — Integration Smoke Test (manual, both surfaces)
-
-23. Start the backend locally: `cd backend && uvicorn app.main:app --reload --host 0.0.0.0` (optionally `POSE_MODEL_DEVICE=mps` for CoreML acceleration on the Mac M3 Max).
-24. `curl -F "frames=@sample.jpg" -F "timestamps=0.5" http://localhost:8000/v1/pose` with any local JPEG — confirm HTTP 200 with a well-formed `frames` array (keypoints may be empty if no person is in the sample image; the check is a valid response shape, not detection accuracy). Note first-call latency (model weight download) vs. subsequent calls.
-25. Build and run the iOS app (Simulator or device) with the backend reachable at `BackendConfig.baseURL`; complete the full flow: record or import video → pose estimation → manual phase review → confirm all three phases.
-26. Confirm in the Xcode console: `[CoachingAnalyze] cues: N, summary: ...` is logged after phase confirmation, alongside the existing `[ReferenceFrameFetch]` logs from Phase 8 — both fire from the same confirmation point without interfering with each other.
-27. Stop the backend and repeat the flow: confirm `[CoachingAnalyze] failed: ...` is logged, the app does not crash, and the reference-frame error-alert/retry flow (Phase 8/11) still works independently.
+19. Start the backend locally: `cd backend && uvicorn app.main:app --reload --host 0.0.0.0` (optionally `POSE_MODEL_DEVICE=mps` for CoreML acceleration on the Mac M3 Max).
+20. `curl -F "frames=@sample.jpg" -F "timestamps=0.5" http://localhost:8000/v1/pose` with any local JPEG — confirm HTTP 200 with a well-formed `frames` array (keypoints may be empty if no person is in the sample image; the check is a valid response shape, not detection accuracy). Note first-call latency (model weight download) vs. subsequent calls.
+21. Run `scripts/verify.sh backend` — confirm the full pytest suite (including the new `test_pose_model.py`/`test_pose_endpoint.py`) passes with zero failures.
+22. Run `scripts/verify.sh ios` — confirm the full `xcodebuild test` suite (including the new `VisionJointMapperTests`/`CoachingResultDecodingTests`) passes with zero failures.
+23. Confirm no Lite-path files were touched: `git diff --name-only develop...HEAD` contains no changes under `App/Views/PhaseReviewView.swift`, `App/Views/VideoSourceSelectionView.swift`, `App/Views/ContentView.swift`, or the Lite pipeline/segmentation services.

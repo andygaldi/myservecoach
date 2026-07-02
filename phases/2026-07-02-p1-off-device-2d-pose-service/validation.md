@@ -46,35 +46,30 @@ Phase P1 is complete when all of the following pass.
 |---|---|
 | Service targets `BackendConfig.baseURL` + `/v1/analyze`, not the old `/analysis/serve` stub | Code review of `LiveCoachingService.init`/`analyze` — no hardcoded `localhost` |
 | Response decoding correctness | Covered by `CoachingResultDecodingTests` (Group 4) — no separate network-mock suite, consistent with the existing codebase precedent that `ReferenceFrameService`'s live fetch is likewise unit-untested at the network layer |
+| `LiveCoachingService` has no in-app caller | `grep -rn "CoachingViewModel\|LiveCoachingService(" App/Views App/ViewModels` — no matches outside `CoachingService.swift` itself and its own tests |
 
-## iOS — App Flow Wiring (Group 6)
-
-| Check | How to verify |
-|---|---|
-| `CoachingViewModel.analyze()` re-derives keypoints at each confirmed timestamp and calls the coaching service with translated frames | `CoachingViewModelTests` with a mock `CoachingServiceProtocol` |
-| A thrown service error sets `fetchError` without crashing | Same suite |
-| Full iOS test suite green | `scripts/verify.sh ios` (`xcodebuild test` on iPhone 17 Pro / iOS 26.4 Simulator) — zero failures, including all pre-existing tests |
-
-## Integration (Group 7, manual — real device or Simulator + local backend)
+## Integration (Group 6, manual — real device or Simulator + local backend)
 
 | Check | How to verify |
 |---|---|
 | `/v1/pose` responds to a real multipart request | `curl -F "frames=@sample.jpg" -F "timestamps=0.5" http://localhost:8000/v1/pose` → HTTP 200, well-formed `frames` array |
-| Full app flow completes end-to-end | Record or import → pose estimation → manual phase review → confirm all three phases |
-| Coaching analyze fires alongside reference-frame fetch | Xcode console shows both `[CoachingAnalyze] cues: N, summary: ...` and the existing `[ReferenceFrameFetch]` logs after phase confirmation |
-| Backend-down case degrades gracefully | Stop the backend, repeat the flow — `[CoachingAnalyze] failed: ...` logged, no crash, and the Phase 8/11 reference-frame error/retry flow still works independently |
-| No regression to Phase 7/8 manual review or reference-frame flow | Existing behavior (phase scrubbing, confirm, reference-frame fetch/error/retry) unchanged |
+| Full backend suite green | `scripts/verify.sh backend` — zero failures |
+| Full iOS suite green | `scripts/verify.sh ios` (`xcodebuild test` on iPhone 17 Pro / iOS 26.4 Simulator) — zero failures, including the new `VisionJointMapperTests`/`CoachingResultDecodingTests` |
+| No Lite-path files touched | `git diff --name-only develop...HEAD` contains no changes under `App/Views/PhaseReviewView.swift`, `App/Views/VideoSourceSelectionView.swift`, `App/Views/ContentView.swift`, or the Lite pipeline/segmentation services |
+| No regression to Phase 7/8 manual review or reference-frame flow | Manually confirm existing behavior (phase scrubbing, confirm, reference-frame fetch/error/retry) is unchanged — expected, since no Lite-path file changed |
 
 ## Merge Criteria
 
 - `scripts/verify.sh backend` passes (full `pytest backend/` suite, zero failures) — the opt-in `RUN_MODEL_INTEGRATION_TESTS=1` real-model test is **not** part of this run and is **not** a merge gate; it's a one-time manual check whose outcome is recorded above for documentation purposes.
 - `scripts/verify.sh ios` passes (full `xcodebuild test` suite, zero failures).
-- The Group 7 manual integration smoke test has been run at least once (console logs confirmed) — camera-dependent steps validated on Simulator or device per the project's usual manual-test allowance.
-- No changes to `rules.json` thresholds, no new UI screen, no `/v1/pose` iOS capture path — all explicitly out of scope per `requirements.md`.
+- The Group 6 manual integration smoke test has been run at least once (`/v1/pose` curl check confirmed).
+- **No change to the Lite flow** — `PhaseReviewView.swift`, `VideoSourceSelectionView.swift`, `ContentView.swift`, and the Lite pipeline/segmentation services are untouched; `git diff` confirms it. This is the hard architectural gate protecting the three-mode product vision (see `specs/mission.md` "Capture Modes").
+- No changes to `rules.json` thresholds, no new UI screen, no `/v1/pose` iOS capture path, no `CoachingViewModel` — all explicitly out of scope per `requirements.md`.
 
 ## Not Required for Merge
 
 - Rule threshold calibration or coaching-cue accuracy (Phase P4) — cues from `/v1/analyze` may be noisy given uncalibrated 2D thresholds; that's expected.
 - A coaching-results UI screen (Phase P5).
 - iOS capture/POST of raw frames to `/v1/pose` (deferred; backend-only this phase).
+- Wiring `LiveCoachingService.analyze()` into the app (deferred to P5, mode-gated).
 - Persisting cues to SwiftData.
