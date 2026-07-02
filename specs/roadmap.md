@@ -107,7 +107,9 @@ Ground the `rules.json` thresholds in real 2D-measured joint angles now that rel
 
 ### Phase P5 — Automated Coaching Cues / Assessment (2D)
 
-For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receive and display the `AnalyzeResponse` cue list on a **new, Pro-mode-gated coaching-results screen** — distinct from the Lite comparison screen, reachable only when Pro 2D mode is selected. Wires `LiveCoachingService.analyze()` (built service-layer-only in P1) into the app for the first time. Add SwiftData fields to persist cues alongside the phase frames already stored. Requires P3 (automatic segmentation) and P4 (calibrated 2D rules).
+**Builds the mode-selector, first appearance (2-way).** This is the first phase with any Pro-facing screen, so it also owns building the session-setup mode-selection step that gates entry to it: a **Lite / Pro 2D** choice shown at session start (natural insertion point: at or just before `VideoSourceSelectionView`, today's session entry). Selecting **Lite** routes into the existing, byte-for-byte-unchanged Lite flow (`VideoSourceSelectionView` → pipeline → `PhaseReviewView` → comparison) — the selector must not modify `PhaseReviewView`, the Lite pipeline/segmentation services, or the internals of `VideoSourceSelectionView`'s Lite path; if a wrapper/parent view is introduced at session entry, Lite's downstream views are navigated to unchanged. Selecting **Pro 2D** routes into the new Pro pipeline described below. (Pro 3D is not an option yet — added in P7.) The exact UI form and default/persistence behavior (segmented control vs. first-run screen, remembered-per-user vs. per-session) are decided during this phase's `/spec`.
+
+For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receive and display the `AnalyzeResponse` cue list on a **new, Pro-mode-gated coaching-results screen** — distinct from the Lite comparison screen, reachable only when Pro 2D mode is selected via the selector built above. Wires `LiveCoachingService.analyze()` (built service-layer-only in P1) into the app for the first time. Add SwiftData fields to persist cues alongside the phase frames already stored. Requires P3 (automatic segmentation) and P4 (calibrated 2D rules).
 
 ### Phase P6 — Goal Library & Set Goal Session Mode (2D)
 
@@ -117,7 +119,9 @@ Continuous recording session with automatic per-serve detection (P3) and per-ser
 
 ### Phase P7 — Stereo Camera Rig & Calibration
 
-Two USB webcams on the Mac; OpenCV stereo intrinsics/extrinsics calibration (`cv2.calibrateCamera` per camera, then `cv2.stereoCalibrate`); synchronized dual capture; calibration matrices saved to `stereoCalibration.json` and loaded at backend startup. Introduces `backend/tools/stereo_calibrate.py`. Proves the stereo geometry without any Jetson hardware — the iPhone shifts from primary camera to controller and display on this path. Extends the session-setup mode-selection step (introduced conceptually in P5's mode gate) to a full three-way choice — **Lite / Pro 2D / Pro 3D** — that gates which capture pipeline and coaching mode runs downstream.
+Two USB webcams on the Mac; OpenCV stereo intrinsics/extrinsics calibration (`cv2.calibrateCamera` per camera, then `cv2.stereoCalibrate`); synchronized dual capture; calibration matrices saved to `stereoCalibration.json` and loaded at backend startup. Introduces `backend/tools/stereo_calibrate.py`. Proves the stereo geometry without any Jetson hardware — the iPhone shifts from primary camera to controller and display on this path.
+
+**Extends the mode-selector to three-way.** Adds **Pro 3D** as a third option to the Lite/Pro-2D selector built in P5, gating which of the three capture pipelines and coaching modes runs downstream. This must not alter the Lite or Pro-2D routes already validated in P5 — the extension adds a third branch to the existing selector, it does not restructure the selector or either existing route.
 
 ### Phase P8 — 3D Pose Triangulation & Angles
 
