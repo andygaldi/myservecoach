@@ -1,83 +1,100 @@
 # Phase P4 — Robust Automatic Multi-Stage Serve Segmentation — Requirements
 
-> **Auto-selected decisions note:** the four Key Decisions below were surfaced via `AskUserQuestion`
-> with a recommended option each; no response was received in time, so the recommended option was
-> taken for all four (noted per-row). Review before `/phase` and say so if any should change.
-
 ## Scope
 
-Extend `backend/app/engine/phases.py`'s `detect_phases` from the current 3-frame model
-(trophy pose, racket drop, contact) to the full 6-frame Kovacs model (Start, Release, Loading/trophy
-pose, Cocking/racket drop, Contact, Finish), combining the off-device 2D pose signal (P1) with the
-racket-detection signal (P2) — the two signals Phase 6 concluded were both necessary and which
-on-device Vision could not reliably provide together. This is backend-only, developer-tooling-adjacent
-work: no new iOS surface, no `/v1/analyze` caller yet (that's P6), and no change to any Lite-mode file.
+Extend `backend/app/engine/phases.py` with two capabilities, both combining the off-device 2D pose
+signal (P1) with the racket/ball-detection signal (P2) — the pairing Phase 6 concluded on-device Vision
+could not reliably provide:
+
+1. **Multi-serve boundary splitting** — a new `segment_serves` function that splits one continuous
+   recording's frame sequence into per-serve sub-sequences, needed for the Assessment (P6) and Set Goal
+   (P7) continuous-recording workflows.
+2. **Six-frame phase detection** — `detect_phases` extended from the current 3-frame model (trophy pose,
+   racket drop, contact) to the full 6-frame Kovacs model (Start, Release, Loading/trophy pose,
+   Cocking/racket drop, Contact, Finish), run per serve segment.
+
+This is backend-only, developer-tooling-adjacent work: no new iOS surface, no `/v1/analyze` caller yet
+(that's P6), and no change to any Lite-mode file. **This phase's heuristics are expected to need real-footage
+iteration** (per Phase 6's precedent) — several thresholds are exposed as named, tunable module constants
+specifically so Group 6 (manual re-validation) can adjust them against real serves without touching test
+logic.
 
 ## In Scope
 
 - **`ServePhase` enum** (`backend/app/models.py`) gains three new members: `start`, `release`, `finish`,
   alongside the existing `trophy_pose`, `racket_drop`, `contact`.
+- **New `segment_serves(frames: list[Frame]) -> list[list[Frame]]`** in `phases.py` — splits a continuous
+  frame sequence into per-serve sub-lists using frame-to-frame pose-keypoint velocity: a serve boundary is
+  declared after a sustained low-velocity ("rest") window of at least `MIN_REST_FRAMES` frames that is
+  preceded by genuine motion (so leading/trailing idle padding at the very start/end of the clip is never
+  split off as its own empty "serve"). `MIN_REST_FRAMES` and `LOW_MOTION_VELOCITY_THRESHOLD` are named,
+  tunable module constants. This is a dormant, unit-tested service-layer function — no in-app caller yet,
+  matching P1's precedent for introducing capabilities ahead of their eventual (P6/P7) wiring.
 - **`detect_phases` signature extended** to
-  `detect_phases(frames: list[Frame], detections: list[list[Detection]] | None = None) -> dict[ServePhase, Frame | None]`.
-  `detections[i]` (if provided) is the list of `Detection` objects for `frames[i]`, aligned by index —
-  mirrors how `frames` and `detections` are already produced in lockstep by `/v1/pose` and `/v1/detect`
-  sampling the same frame stream. `None`/omitted stays fully backward compatible with existing 3-phase
+  `detect_phases(frames: list[Frame], detections: list[list[Detection]] | None = None) -> dict[ServePhase, Frame | None]`,
+  operating on one serve's frames (i.e., one element of `segment_serves`'s output, or any pre-segmented
+  single-serve list as today). `detections[i]` (if provided) is the list of `Detection` objects for
+  `frames[i]`, aligned by index. `None`/omitted stays fully backward compatible with existing 3-phase
   callers and tests.
 - **Six-frame heuristics:**
-  - `start`: `frames[0]` — the input array is already a single boundary-trimmed serve (this phase does
-    not add multi-serve splitting; see Out of Scope), so the first frame *is* the ready-stance frame by
-    construction.
-  - `release`: the earliest frame where the toss wrist rises above the toss shoulder
-    (`toss_wrist_y > toss_shoulder_y`) — reuses the existing trophy-pose sub-condition but takes the
-    first match in time rather than requiring the full trophy-pose gate.
+  - `release`: the first frame where a detected **ball** is above the toss hand, *if the ball is ever
+    detected anywhere in the sequence*; otherwise falls back to the original heuristic (earliest frame
+    where `toss_wrist_y > toss_shoulder_y`). Degrades gracefully given P3's baseline 10.8% ball-detection
+    rate.
+  - `start`: the frame with the lowest toss-wrist height (`argmin(toss_wrist_y)`) searched over
+    `frames[0:release_idx]` (or `frames[0:trophy_idx]` if `release` didn't resolve) — mirrors the existing
+    `argmax` pattern already used for `contact`, marking the bottom of the toss backswing right before the
+    arm begins its ascent.
   - `trophy_pose` (Loading): unchanged existing heuristic.
-  - `racket_drop` (Cocking): existing elbow-y-rise heuristic, **augmented** with the racket bounding-box
-    signal when `detections` is provided — see Key Decisions for the exact combination rule.
+  - `racket_drop` (Cocking): existing elbow-y-rise signal **combined** with the racket bounding-box signal
+    (not a fallback-only relationship) — see Key Decisions for the exact scoring rule.
   - `contact`: unchanged existing heuristic.
-  - `finish`: `frames[-1]` — the last frame of the trimmed serve array.
+  - `finish`: the frame with the lowest **front (leading) foot** height (`argmin` of the toss-side ankle —
+    opposite the hitting arm — searched over `frames[contact_idx+1:]`), falling back to the last frame if
+    no post-contact ankle data exists.
 - **`AnalyzeRequest` (`backend/app/models.py`) gains an optional `detections: list[list[Detection]] | None = None`
   field**, and `analyze.py`'s handler passes it through to `detect_phases`. No iOS caller sets this field
   yet (P6 is the first caller); this only prepares the contract.
 - **New tool `backend/tools/segmentation_report.py`** — runs the real, unmodified `RTMPoseModel` (P1) and
   `ObjectDetectionModel` (P2) against each `backend/tools/calibration_data/*.mov` video (reusing
-  `pose_benchmark.py`'s `sample_video_frames`), runs the new 6-frame `detect_phases` over the resulting
-  per-video frame/detection sequence, and produces a gitignored HTML report highlighting all six detected
-  phase frames per video (extending `calibration_report.py`'s highlight-row pattern from 3 labels to 6,
-  reusing `_img_tag` and the page CSS by import). `calibration_report.py` itself is left untouched — it
-  remains the separate, still-valid Lite-mode (on-device-Vision-console-log, 3-phase) tool.
-- **Unit tests** (`backend/tests/test_phases.py`) for the three new phases and the racket-augmented
-  `racket_drop` heuristic, following the existing `make_frame`/`TROPHY_KPS` fixture style.
-- **Manual, opt-in re-validation** against the four real serve videos in `calibration_data/` — visual
-  spot-check via the new tool's HTML report, following Phase 6's and P3's precedent of no formal ground
-  truth (deferred to P18).
+  `pose_benchmark.py`'s `sample_video_frames`), calls `segment_serves` on the resulting frame/detection
+  sequence, runs the new 6-frame `detect_phases` over each resulting serve segment, and produces a
+  gitignored HTML report with one section per detected serve, each showing all six phase frames
+  (extending `calibration_report.py`'s per-serve, per-phase highlight-row pattern — which already handles
+  multiple serves per video — from 3 labels to 6, reusing `_img_tag` and the page CSS by import).
+  `calibration_report.py` itself is left untouched.
+- **Unit tests** for `segment_serves`, the three new phase heuristics (including their fallback paths),
+  and the combined-signal `racket_drop`, following the existing `make_frame`/`TROPHY_KPS` fixture style.
+- **Manual, opt-in, iterative re-validation** against the four real serve videos in `calibration_data/` —
+  `serve_4.mov` (the only calibration video containing two serves, per its console log) is the natural
+  real-footage test case for `segment_serves`. Following Phase 6's precedent, this group expects to *tune*
+  the new module constants against what the reports show, not just observe them once.
 
 ## Out of Scope
 
-- **Multi-serve boundary splitting** (segmenting one continuous recording into multiple individual
-  serves). *(Key Decision — recommended option auto-selected: no response received.)* Nothing off-device
-  does this today; it's deferred to whenever P7's continuous Set-Goal session actually needs it. All four
-  real calibration videos are already one-serve-per-file, so this phase's re-validation doesn't require it
-  either.
-- **Ball-detection signal.** P3's baseline showed a 10.8% ball-detection rate vs. 74.1% for racket — too
-  unreliable to use as a phase-detection signal yet. Only racket detections feed the new heuristics.
+- **Ball-detection signal for anything except `release`.** `racket_drop` never considers ball detections;
+  `segment_serves` uses pose velocity only, not object detections.
 - **Rule calibration / `rules.json` changes** for the three new phases — that's P5's job, once real
   2D-measured angles exist for Start/Release/Finish.
-- **Wiring `/v1/analyze` into the iOS app, or the mode-selector UI** — both are P6.
+- **Wiring `/v1/analyze`, `segment_serves`, or the mode-selector UI into the iOS app** — all P6/P7.
 - **Any change to `RTMPoseModel`, `ObjectDetectionModel`, or `calibration_report.py`.** This phase only
   consumes those services and adds a new, separate tool.
-- **Rigorous ground-truth accuracy metrics for the new phases** (deferred to P18, consistent with P3's
-  precedent).
+- **Rigorous ground-truth accuracy metrics for the new phases or for `segment_serves`'s boundary accuracy**
+  (deferred to P18, consistent with P3's precedent).
 - **Any iOS work.** `git diff --name-only develop...HEAD` must show zero changes under `App/`.
 
 ## Key Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| P4 scope: single-serve vs. multi-serve splitting | Single-serve, 6-frame phase detection only | *(Auto-selected, recommended option — no user response.)* Matches the roadmap's literal text ("extends phases.py from 3 to 6 detected frames"); all real calibration videos are already one-serve-per-file; multi-serve splitting has no current caller or need. |
-| Racket signal integration | `detect_phases` gains an optional `detections` param; `racket_drop` heuristic is racket-bbox-augmented; `AnalyzeRequest`/`/v1/analyze` gain a forward-compatible optional `detections` field | *(Auto-selected, recommended option — no user response.)* Phase 6's pivot note called racket position "critical for accurate phase classification"; P3's baseline confirms racket detection is reliable (74.1% detection rate, tight boxes) unlike ball (10.8%). |
-| Racket-augmented `racket_drop` combination rule | When `detections` is provided and at least one frame in the trophy→contact window has a racket detection, prefer the frame where the racket bounding-box *center y* is lowest (racket at its most-dropped point) among frames with a racket detection; fall back to the existing elbow-y-rise heuristic when no racket detection exists in that window (`detections` omitted, or none present) | Keeps the existing, already-calibrated (Phase 6) elbow-y-rise heuristic as the guaranteed fallback so pose-only callers and existing tests are unaffected, while giving the racket signal priority when available, per the Key Decision above. Exact frame-selection logic is detailed in `spec.md`. |
-| New-stage (Start/Release/Finish) heuristic style | Positional: `start = frames[0]`, `finish = frames[-1]`, `release` = earliest toss-wrist-above-shoulder frame | *(Auto-selected, recommended option — no user response.)* Matches the complexity level of the existing 3-frame heuristic; deterministic and unit-testable; consistent with the "single-serve, already-trimmed input" scope decision above. Velocity-based motion analysis was considered but rejected as a bigger lift and closer to the approach Phase 6 already concluded was unreliable alone. |
-| Re-validation tooling | New `backend/tools/segmentation_report.py`, reusing `pose_benchmark.py`'s frame sampling and `calibration_report.py`'s `_img_tag`/CSS via import; `calibration_report.py` itself unchanged | *(Auto-selected, recommended option — no user response.)* Avoids conflating the Lite-mode (on-device-Vision-console-log input, 3-phase) tool with the new Pro-mode (off-device-model, video-only input, 6-phase) workflow — mirrors P3's precedent of a new tool importing shared helpers rather than mutating an existing one. |
+| Multi-serve splitting: in scope | `segment_serves(frames) -> list[list[Frame]]`, new dormant function in `phases.py` | User correction: needed for the Assessment (P6) workflow, which the roadmap explicitly ties to "automatic per-serve detection (P4)." `serve_4.mov`'s existing two-serve recording is a ready-made real-footage validation case. |
+| Serve-boundary detection approach | Frame-to-frame pose-keypoint velocity; split after a sustained low-velocity window (`MIN_REST_FRAMES`) that follows genuine motion | User-selected over "return-to-ready-stance detection" — velocity-based splitting doesn't couple to the `start` heuristic's own definition, and is more general-purpose (works even if a player's ready stance varies serve to serve). |
+| `racket_drop` combination rule | Weighted combination, not fallback-only: normalize the elbow-y-rise signal and the racket-bbox-center-y signal (inverted, since lower = more dropped) across the trophy→contact window, then pick the frame maximizing a weighted average of whichever signals are available for it. `RACKET_DROP_ELBOW_WEIGHT` / `RACKET_DROP_RACKET_WEIGHT` (default 0.5/0.5) are named, tunable constants. With `detections=None`, the racket term is never available for any frame, so the result reduces to the original elbow-only ranking — fully backward compatible. | User correction: combine both signals rather than racket-first-fallback-to-elbow, since neither signal alone is fully reliable (P3: 74.1% racket detection, and the pre-existing elbow heuristic was only ever calibrated against on-device Vision, without racket data at all). |
+| `finish` foot selection | Front (leading) foot — the toss-side ankle (opposite the hitting arm; `left_ankle` for the current `HANDEDNESS["hitting"] == "right"`) | User-selected. Matches the Kovacs model's "front-foot landing" description and standard serve biomechanics, rather than the literal (hitting-side) right foot. |
+| `release` ball-detection handling | Ball-detection primary (first frame where a detected ball's bbox is above the toss hand), toss-wrist-rise fallback when the ball is never detected anywhere in the sequence | User-selected. Degrades gracefully given P3's confirmed 10.8% ball-detection rate — most serves will likely use the fallback path today, but the primary path activates automatically as ball-detection quality improves later. |
+| `start` heuristic | `argmin(toss_wrist_y)` searched over `frames[0:release_idx]` (or `frames[0:trophy_idx]` if `release` is unresolved) | User-selected over velocity-sign-change detection. Mirrors the existing `argmax` pattern already used for `contact`; deterministic and unit-testable; avoids the velocity-only approach Phase 6 already concluded was unreliable alone. |
+| Re-validation tooling | New `backend/tools/segmentation_report.py`, reusing `pose_benchmark.py`'s frame sampling and `calibration_report.py`'s `_img_tag`/CSS/per-serve-sectioning pattern via import; `calibration_report.py` itself unchanged | Avoids conflating the Lite-mode (on-device-Vision-console-log input, 3-phase) tool with the new Pro-mode (off-device-model, video-only input, 6-phase, multi-serve) workflow — mirrors P3's precedent of a new tool importing shared helpers rather than mutating an existing one. |
+| Iterative tuning is an explicit part of Group 6 | `MIN_REST_FRAMES`, `LOW_MOTION_VELOCITY_THRESHOLD`, `RACKET_DROP_ELBOW_WEIGHT`, `RACKET_DROP_RACKET_WEIGHT` are named module constants in `phases.py`, tuned during the manual real-footage run rather than fixed a priori | User noted iteration will likely be needed to "nail down rules" — mirrors Phase 6's own precedent of adjusting heuristics against real footage until they visually hold up. |
 
 ## Context
 
@@ -89,13 +106,17 @@ work: no new iOS surface, no `/v1/analyze` caller yet (that's P6), and no change
   was built in Phase 4 and calibrated against real footage in Phase 6 — that calibration outcome is what
   triggered the Lite/Pro pivot: on-device Vision couldn't reliably provide racket position, which Phase 6
   concluded was critical for accurate phase classification. This phase is the first to combine pose +
-  racket signals for that reason.
+  racket signals for that reason, and the first to attempt automatic serve-boundary splitting off-device.
 - `backend/app/engine/rules.py`'s `evaluate_rules` already looks up `phase_frames.get(rule.phase)` per
   rule and skips missing phases — adding new `ServePhase` members with no corresponding `rules.json`
   entries yet is safe and requires no `rules.py` change.
-- `backend/tools/calibration_data/` holds four real serve videos, each already one serve per file (three
-  have exactly one `Serve 1/1` console-log entry; `serve_4.mov` has two) — the same footage P3's benchmark
-  ran against, gitignored and local-only.
+- `backend/tools/calibration_data/` holds four real serve videos, gitignored and local-only — the same
+  footage P3's benchmark ran against. Three contain a single `Serve 1/1` console-log entry; `serve_4.mov`
+  contains two (`Serve 1/2`, `Serve 2/2`), making it this phase's natural multi-serve validation case.
+  `calibration_report.py`'s existing `generate_html` already sections its report per-serve (built for
+  exactly this kind of multi-serve-per-video case, using on-device Vision's own boundary detection) —
+  `segmentation_report.py` follows the same per-serve sectioning convention, but with boundaries produced
+  by the new off-device `segment_serves` instead.
 - **Three-mode product architecture:** per `specs/mission.md`'s isolation rule, this phase's code is
   Pro-2D/3D-only and additive. It must not modify `PhaseReviewView`, the Lite pipeline/segmentation
   services, or `ContentView`. Lite mode's on-device 3-phase flow and its own serve-boundary detection
