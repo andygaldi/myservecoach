@@ -43,3 +43,25 @@ class AnalyzeResponse(BaseModel):
 
 class PoseResponse(BaseModel):
     frames: list[Frame]
+
+
+class BoundingBox(BaseModel):
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+
+
+class Detection(BaseModel):
+    label: str
+    confidence: float
+    bbox: BoundingBox
+
+
+class DetectionFrame(BaseModel):
+    timestamp: float
+    detections: list[Detection]
+
+
+class DetectResponse(BaseModel):
+    frames: list[DetectionFrame]

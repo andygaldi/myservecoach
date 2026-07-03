@@ -33,7 +33,7 @@ Phase P2 is complete when all of the following pass.
 |---|---|
 | Real `ultralytics.YOLO` loads and runs inference without error | `cd backend && RUN_MODEL_INTEGRATION_TESTS=1 pytest tests/test_object_detection_integration.py -v` — record pass/fail and first-run weight-download time/size in this file's notes once run. |
 
-**Run notes:** _(fill in after Group 3, task 11 is executed during `/phase`)_
+**Run notes:** Executed `RUN_MODEL_INTEGRATION_TESTS=1 pytest tests/test_object_detection_integration.py -v` — PASSED in 1.37s. First-run download: one PyTorch checkpoint (`yolo11n.pt`, 5.6 MB) from Ultralytics' asset release, saved to the current working directory (`backend/yolo11n.pt`, now gitignored via `*.pt`). Subsequent runs load from the local file (no re-download). `device="cpu"` (default; `DETECTION_MODEL_DEVICE` unset).
 
 ## Integration (Group 4, manual — local backend)
 

@@ -8,3 +8,4 @@ opencv-python>=4.9,<5
 aiofiles>=24,<25
 rtmlib>=0.0.15,<0.1
 python-multipart>=0.0.20,<0.1
+ultralytics>=8.4,<8.5
