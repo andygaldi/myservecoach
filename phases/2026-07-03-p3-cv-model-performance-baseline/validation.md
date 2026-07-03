@@ -45,13 +45,13 @@ Phase P3 is complete when all of the following pass.
 | No regression to existing backend endpoints/tests | `pytest backend/` includes and passes all pre-existing test files (`test_analyze.py`, `test_phases.py`, `test_pose_endpoint.py`, `test_detect_endpoint.py`, `test_reference_frames.py`, `test_rules.py`, `test_angles.py`, `test_calibration_report.py`, `test_object_detection.py`). |
 | No iOS files touched | `git diff --name-only develop...HEAD` contains no changes under `App/`. |
 
-**Run notes (fill in after the manual run):**
+**Run notes:**
 
-- Baseline file: `backend/tools/pose_benchmark_baselines/<timestamp>.json`
-- Aggregate person/racket/ball detection rates:
-- Aggregate avg keypoint / racket / ball confidence:
-- Aggregate avg pose FPS / detection FPS:
-- Visual spot-check observations (gross failures, if any):
+- Baseline file: `backend/tools/pose_benchmark_baselines/2026-07-03-164302.json` (stride=5, 232 sampled frames across `serve_1.MOV`–`serve_4.mov`)
+- Aggregate person/racket/ball detection rates: person 100.0% · racket 74.1% · ball 10.8%
+- Aggregate avg keypoint / racket / ball confidence: keypoint 0.775 · racket 0.699 · ball 0.548
+- Aggregate avg pose FPS / detection FPS: pose 4.2 FPS · detection 43.8 FPS (CPU, `device="cpu"`; first run downloaded rtmlib's YOLOX-m detector + RTMPose-m ONNX checkpoints to `~/.cache/rtmlib/`, plus YOLO11n weights already cached from P2 — total run ~63s for all 4 videos)
+- Visual spot-check observations: opened all four `serve_N_benchmark/report.html` reports. Skeleton dots track the body correctly through trophy pose, reach, and contact across different lighting/backgrounds (outdoor court with chain-link fence, indoor gym, stadium crowd); racket bounding boxes are tight and correctly placed in every spot-checked frame, including a stadium clip with a differently-colored racket and a fast-motion indoor clip. No gross failures (no missed-person frames). **Ball detection rate (10.8%) is noticeably low** compared to racket (74.1%) — the tennis ball is small, fast-moving, and often motion-blurred or off-frame during the sampled stride; this is a real limitation worth flagging for Phase P4's segmentation design (racket-position signal is far more reliable than ball-position signal from this model at this stride).
 
 ## Merge Criteria
 
