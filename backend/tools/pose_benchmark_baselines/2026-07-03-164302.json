@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-07-03T20:43:02.791873+00:00",
+  "stride": 5,
+  "videos": {
+    "serve_1": {
+      "frame_count": 84,
+      "person_detection_rate": 1.0,
+      "racket_detection_rate": 0.7738095238095238,
+      "ball_detection_rate": 0.07142857142857142,
+      "avg_keypoint_confidence": 0.8385087390664686,
+      "avg_racket_confidence": 0.6322666090268355,
+      "avg_ball_confidence": 0.5249684353669485,
+      "avg_pose_fps": 7.613581754272414,
+      "avg_detection_fps": 45.42272437388188
+    },
+    "serve_2": {
+      "frame_count": 32,
+      "person_detection_rate": 1.0,
+      "racket_detection_rate": 0.46875,
+      "ball_detection_rate": 0.15625,
+      "avg_keypoint_confidence": 0.6548755689956514,
+      "avg_racket_confidence": 0.6982965846856435,
+      "avg_ball_confidence": 0.4770606875419617,
+      "avg_pose_fps": 7.754624537124,
+      "avg_detection_fps": 51.46775602337092
+    },
+    "serve_3": {
+      "frame_count": 40,
+      "person_detection_rate": 1.0,
+      "racket_detection_rate": 0.675,
+      "ball_detection_rate": 0.075,
+      "avg_keypoint_confidence": 0.7870534639273371,
+      "avg_racket_confidence": 0.7209525395322729,
+      "avg_ball_confidence": 0.2871851623058319,
+      "avg_pose_fps": 7.75512902675567,
+      "avg_detection_fps": 51.23639267826033
+    },
+    "serve_4": {
+      "frame_count": 76,
+      "person_detection_rate": 1.0,
+      "racket_detection_rate": 0.8552631578947368,
+      "ball_detection_rate": 0.14473684210526316,
+      "avg_keypoint_confidence": 0.7492593214251941,
+      "avg_racket_confidence": 0.7555912118691664,
+      "avg_ball_confidence": 0.6640924702991139,
+      "avg_pose_fps": 2.2150678257688936,
+      "avg_detection_fps": 37.18568005278224
+    }
+  },
+  "aggregate": {
+    "frame_count": 232,
+    "person_detection_rate": 1.0,
+    "racket_detection_rate": 0.7413793103448276,
+    "ball_detection_rate": 0.10775862068965517,
+    "avg_keypoint_confidence": 0.7750715485985019,
+    "avg_racket_confidence": 0.6985518935807916,
+    "avg_ball_confidence": 0.5480674684047699,
+    "avg_pose_fps": 4.246920077042403,
+    "avg_detection_fps": 43.81048730332344
+  }
+}
