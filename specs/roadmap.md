@@ -76,7 +76,7 @@ Before starting Pro phases, fix the following items surfaced during loop-based t
 
 Mac backend gets a real 2D pose model (RTMPose via ONNX Runtime) behind a new `POST /v1/pose` endpoint, returning per-frame keypoints — the future keypoint source for Pro 2D/3D mode. Build the Vision-joint-name → backend-joint-name translation layer: iOS `PoseFrame.joints` uses Vision raw key names (`right_wrist_joint`, etc.); the backend `Frame.keypoints` schema expects `right_wrist`, `left_shoulder`, etc. Implement the currently-stubbed `App/Services/Coaching/CoachingService.swift` `LiveCoachingService.analyze()` — a `// TODO` pointing at a non-existent endpoint with a mismatched result type — and reconcile `CoachingResult` with the backend `AnalyzeResponse` in `models.py`. **Service-layer only this phase**: `LiveCoachingService` has no in-app caller yet, and `/v1/pose` has no iOS capture-path caller yet — both stay dormant, unit-tested services. In-app wiring lands on a Pro-mode screen in P6, never on the Lite `PhaseReviewView`.
 
-### Phase P2 — Racket & Ball Object Detection
+### Phase P2 — Racket & Ball Object Detection ✅
 
 YOLO-class object detector on the Mac for the racket (and ball). Vision never supported racket detection; this is net-new capability. Returns bounding-box positions per frame alongside keypoints, giving the segmentation and phase-detection engines the racket-position signal they need.
 
