@@ -65,10 +65,15 @@ logic.
   `calibration_report.py` itself is left untouched.
 - **Unit tests** for `segment_serves`, the three new phase heuristics (including their fallback paths),
   and the combined-signal `racket_drop`, following the existing `make_frame`/`TROPHY_KPS` fixture style.
-- **Manual, opt-in, iterative re-validation** against the four real serve videos in `calibration_data/` —
-  `serve_4.mov` (the only calibration video containing two serves, per its console log) is the natural
-  real-footage test case for `segment_serves`. Following Phase 6's precedent, this group expects to *tune*
-  the new module constants against what the reports show, not just observe them once.
+- **Manual, opt-in, iterative re-validation** against the real serve videos in `calibration_data/` —
+  `serve_4.mov` (the only original calibration video containing two serves, per its console log) plus
+  additional multi-serve videos the user is adding specifically to stress-test `segment_serves` across more
+  than one multi-serve example, each with a known expected serve count supplied when the video is added.
+  Following Phase 6's precedent, this group expects to *tune* the new module constants against what the
+  reports show, not just observe them once. New videos need no companion `_console.txt` (that format is
+  Lite-mode-only, for `calibration_report.py`) — `segmentation_report.py` runs the off-device pose/detection
+  models directly on the video, so any `*.mov`/`*.MOV` dropped into `calibration_data/` is picked up
+  automatically by the tool's existing default glob, no code change required.
 
 ## Out of Scope
 
@@ -112,11 +117,15 @@ logic.
   entries yet is safe and requires no `rules.py` change.
 - `backend/tools/calibration_data/` holds four real serve videos, gitignored and local-only — the same
   footage P3's benchmark ran against. Three contain a single `Serve 1/1` console-log entry; `serve_4.mov`
-  contains two (`Serve 1/2`, `Serve 2/2`), making it this phase's natural multi-serve validation case.
+  contains two (`Serve 1/2`, `Serve 2/2`), making it this phase's original multi-serve validation case.
   `calibration_report.py`'s existing `generate_html` already sections its report per-serve (built for
   exactly this kind of multi-serve-per-video case, using on-device Vision's own boundary detection) —
   `segmentation_report.py` follows the same per-serve sectioning convention, but with boundaries produced
   by the new off-device `segment_serves` instead.
+- The user is adding further multi-serve videos to `calibration_data/` specifically to give `segment_serves`
+  more than one multi-serve example to prove out against (`serve_4.mov` alone is a single data point). Each
+  added video comes with a known expected serve count, recorded in `validation.md`'s Group 5 run notes
+  alongside the actual detected count.
 - **Three-mode product architecture:** per `specs/mission.md`'s isolation rule, this phase's code is
   Pro-2D/3D-only and additive. It must not modify `PhaseReviewView`, the Lite pipeline/segmentation
   services, or `ContentView`. Lite mode's on-device 3-phase flow and its own serve-boundary detection

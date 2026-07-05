@@ -57,14 +57,24 @@ Phase P4 is complete when all of the following pass.
 
 | Check | How to verify |
 |---|---|
-| `segmentation_report.py` runs end-to-end against all four real serve videos | `cd backend && python tools/segmentation_report.py` — completes without error. |
-| `serve_4.mov` splits into exactly two serve sections, matching its `Serve 1/2`/`Serve 2/2` console log | Open `serve_4_segmentation/report.html` — two sections present. If not, tune `MIN_REST_FRAMES`/`LOW_MOTION_VELOCITY_THRESHOLD` and re-run until it matches. This is the phase's only real multi-serve ground truth and is a hard requirement for merge. |
-| The other three videos (single-serve) each produce exactly one serve section | Open each `serve_N_segmentation/report.html` — one section each, no spurious splits introduced by the tuned constants above. |
+| `segmentation_report.py` runs end-to-end against every video in `calibration_data/`, including any newly-added ones | `cd backend && python tools/segmentation_report.py` — completes without error. |
+| **Every** multi-serve video splits into exactly its known expected serve count | Open each `serve_N_segmentation/report.html` and compare against the expected-count table below. `serve_4.mov` (two serves) plus any newly-added multi-serve videos must all match. If any don't, tune `MIN_REST_FRAMES`/`LOW_MOTION_VELOCITY_THRESHOLD` and re-run until all of them do — this is a hard requirement for merge. |
+| Every single-serve video still produces exactly one serve section | Open each `serve_N_segmentation/report.html` for the single-serve videos — one section each, no spurious splits introduced by whatever constants were tuned to satisfy the multi-serve videos above. |
 | Visual spot-check of all six phases across every detected serve section | Record which phases (if any) resolved to `None`, and anything visually wrong, in the run notes below. |
 | Qualitative comparison of combined-signal `racket_drop` vs. the prior elbow-only result for at least one video with a reliably-detected racket in the trophy→contact window | Recorded in run notes below. |
 | Final tuned constant values recorded | `MIN_REST_FRAMES`, `LOW_MOTION_VELOCITY_THRESHOLD`, `RACKET_DROP_ELBOW_WEIGHT`, `RACKET_DROP_RACKET_WEIGHT` — whatever values `phases.py` ends up with after iteration, transcribed into the run notes below. |
 | No regression to existing backend endpoints/tests | `pytest backend/` includes and passes all pre-existing test files. |
 | No iOS files touched | `git diff --name-only develop...HEAD` contains no changes under `App/`. |
+
+**Expected vs. actual serve counts** *(filled in before/during the Group 5 run — add one row per video in `calibration_data/`)*:
+
+| Video | Expected serve count | Actual serve count |
+|---|---|---|
+| `serve_1.MOV` | 1 | — |
+| `serve_2.mov` | 1 | — |
+| `serve_3.mov` | 1 | — |
+| `serve_4.mov` | 2 | — |
+| *(new videos added here)* | | |
 
 **Run notes:**
 
@@ -75,9 +85,10 @@ Phase P4 is complete when all of the following pass.
 - `scripts/verify.sh backend` passes (full `pytest backend/` suite, zero failures) — includes
   `test_segment_serves.py`, `test_segmentation_report.py`, and the extended `test_phases.py`/
   `test_analyze.py` assertions; no real model load happens in this run.
-- **The Group 5 manual real-footage run has been completed, `serve_4.mov` splits into exactly two serve
-  sections, and the run notes above (including final tuned constants) are filled in.** This is a hard
-  merge gate, consistent with this phase's explicit expectation of iterative tuning against real footage.
+- **The Group 5 manual real-footage run has been completed, every multi-serve video (`serve_4.mov` plus any
+  newly-added ones) splits into exactly its expected serve count, and the run notes above (including the
+  expected-vs-actual table and final tuned constants) are filled in.** This is a hard merge gate, consistent
+  with this phase's explicit expectation of iterative tuning against real footage.
 - `calibration_report.py`, `RTMPoseModel`, and `ObjectDetectionModel` are unmodified.
 - **No iOS changes at all** — `git diff --name-only develop...HEAD` contains zero changes under `App/`.
 - No `rules.json`/rule-calibration changes for the new phases, no ground-truth/PCK accuracy tooling, no

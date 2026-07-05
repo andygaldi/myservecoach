@@ -333,26 +333,34 @@
 
 ## Group 5 — Manual Real-Footage Re-Validation & Heuristic Iteration (manual, backend-only, hard merge gate)
 
-33. `cd backend && python tools/segmentation_report.py` (default args) against the four real
-    `calibration_data/*.mov` videos — confirm it completes (weights already cached from P1–P3).
-34. Open each generated `backend/tools/calibration_data/serve_N_segmentation/report.html` in a browser.
-    For `serve_4.mov` specifically, confirm `segment_serves` produced **two** serve sections matching the
-    two `Serve 1/2`/`Serve 2/2` entries in `serve_4_console.txt` — this is the phase's only real multi-serve
-    ground truth. If it doesn't split correctly (or over/under-splits on the other three, single-serve
-    videos), adjust `MIN_REST_FRAMES` / `LOW_MOTION_VELOCITY_THRESHOLD` in `phases.py` and re-run this tool
-    (no test changes needed — these are runtime-tunable module constants) until the split is correct.
-35. For each detected serve section, visually spot-check all six phase frames, paying particular attention
+33. Before running the tool, confirm which videos are in `backend/tools/calibration_data/` and their known
+    expected serve counts: the original four (`serve_1.MOV`–`serve_3.mov` single-serve, `serve_4.mov`
+    two-serve) plus any additional multi-serve videos the user has added for this phase. Record each
+    video's filename and expected serve count in a small table in `validation.md`'s Group 5 run notes
+    before running, so the actual results can be compared against it directly.
+34. `cd backend && python tools/segmentation_report.py` (default args, no code changes needed — new videos
+    are picked up automatically by the tool's existing `*.mov`/`*.MOV` glob) — confirm it completes against
+    every video in `calibration_data/` (weights already cached from P1–P3).
+35. Open each generated `backend/tools/calibration_data/serve_N_segmentation/report.html` in a browser.
+    For **every** multi-serve video (`serve_4.mov` and any newly-added ones), confirm `segment_serves`
+    produced the exact expected number of serve sections recorded in step 33 — this is the phase's real
+    multi-serve ground truth, now spanning more than one example. If any video over- or under-splits,
+    adjust `MIN_REST_FRAMES` / `LOW_MOTION_VELOCITY_THRESHOLD` in `phases.py` and re-run this tool (no test
+    changes needed — these are runtime-tunable module constants) until **all** multi-serve videos split
+    correctly and the single-serve videos still produce exactly one section each.
+36. For each detected serve section, visually spot-check all six phase frames, paying particular attention
     to: whether the combined-signal `racket_drop` looks more correct than the elbow-only Phase 6 result
     for the same footage; whether `start`/`release`/`finish` land at plausible points given they have no
     prior calibration history. If a heuristic is visibly wrong, adjust the relevant constant
     (`RACKET_DROP_ELBOW_WEIGHT`/`RACKET_DROP_RACKET_WEIGHT`) or, if a structural fix is needed, note it —
     structural heuristic changes should still match this phase's already-reviewed function shapes; iterate
     on constants first.
-36. Record, in this phase's `validation.md` run notes: the final tuned constant values, which phases (if
-    any) still resolve to `None` on which videos, the `serve_4.mov` split-correctness result, and a
-    qualitative comparison of the combined-signal vs. elbow-only `racket_drop` frame.
-37. Run `scripts/verify.sh backend` — confirm the full pytest suite (including
+37. Record, in this phase's `validation.md` run notes: the final tuned constant values, which phases (if
+    any) still resolve to `None` on which videos, the per-video expected-vs-actual serve-count table from
+    step 33 filled in with actual results, and a qualitative comparison of the combined-signal vs.
+    elbow-only `racket_drop` frame.
+38. Run `scripts/verify.sh backend` — confirm the full pytest suite (including
     `test_segment_serves.py`, `test_segmentation_report.py`, and the extended `test_phases.py`/
     `test_analyze.py`) passes with zero failures.
-38. Confirm no iOS files were touched at all this phase: `git diff --name-only develop...HEAD` contains no
+39. Confirm no iOS files were touched at all this phase: `git diff --name-only develop...HEAD` contains no
     changes under `App/`.
