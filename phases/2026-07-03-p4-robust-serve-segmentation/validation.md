@@ -58,8 +58,8 @@ Phase P4 is complete when all of the following pass.
 | Check | How to verify |
 |---|---|
 | `segmentation_report.py` runs end-to-end against every video in `calibration_data/`, including any newly-added ones | `cd backend && python tools/segmentation_report.py` — completes without error. |
-| **Every** multi-serve video splits into exactly its known expected serve count | Open each `serve_N_segmentation/report.html` and compare against the expected-count table below. `serve_4.mov` (two serves) plus any newly-added multi-serve videos must all match. If any don't, tune `MIN_REST_SECONDS`/`LOW_MOTION_VELOCITY_THRESHOLD` and re-run until all of them do — this is a hard requirement for merge. |
-| Every single-serve video still produces exactly one serve section | Open each `serve_N_segmentation/report.html` for the single-serve videos — one section each, no spurious splits introduced by whatever constants were tuned to satisfy the multi-serve videos above. |
+| **Every** multi-serve video splits into exactly its known expected serve count | Open each `serve_N_segmentation/report.html` and compare against the expected-count table below. `ag_three_serves.MOV` plus any further newly-added multi-serve videos must all match. If any don't, tune `MIN_REST_SECONDS`/`LOW_MOTION_VELOCITY_THRESHOLD` and re-run until all of them do — this is a hard requirement for merge. |
+| Every single-serve video still produces exactly one serve section | Open each `serve_N_segmentation/report.html` for the single-serve videos — one section each, no spurious splits. This includes `serve_4.mov`: its console log shows two on-device-Vision-segmented entries, but that's Vision's own over-splitting of one real serve, not ground truth for this phase — `segment_serves` must produce one section for it, not two. |
 | Visual spot-check of all six phases across every detected serve section | Record which phases (if any) resolved to `None`, and anything visually wrong, in the run notes below. |
 | Qualitative comparison of combined-signal `racket_drop` vs. the prior elbow-only result for at least one video with a reliably-detected racket in the trophy→contact window | Recorded in run notes below. |
 | Final tuned constant values recorded | `MIN_REST_SECONDS`, `LOW_MOTION_VELOCITY_THRESHOLD`, `RACKET_DROP_ELBOW_WEIGHT`, `RACKET_DROP_RACKET_WEIGHT` — whatever values `phases.py` ends up with after iteration, transcribed into the run notes below. |
@@ -73,7 +73,7 @@ Phase P4 is complete when all of the following pass.
 | `serve_1.MOV` | 1 | — |
 | `serve_2.mov` | 1 | — |
 | `serve_3.mov` | 1 | — |
-| `serve_4.mov` | 2 | — |
+| `serve_4.mov` | 1 | — |
 | `ag_three_serves.MOV` | 3 | — |
 | `vesa_slow_mo.mov` | 1 | — |
 
@@ -86,8 +86,9 @@ Phase P4 is complete when all of the following pass.
 - `scripts/verify.sh backend` passes (full `pytest backend/` suite, zero failures) — includes
   `test_segment_serves.py`, `test_segmentation_report.py`, and the extended `test_phases.py`/
   `test_analyze.py` assertions; no real model load happens in this run.
-- **The Group 5 manual real-footage run has been completed, every multi-serve video (`serve_4.mov` plus any
-  newly-added ones) splits into exactly its expected serve count, and the run notes above (including the
+- **The Group 5 manual real-footage run has been completed, every multi-serve video (`ag_three_serves.MOV`
+  plus any further newly-added ones) splits into exactly its expected serve count, every single-serve video
+  (including `serve_4.mov`) produces exactly one section, and the run notes above (including the
   expected-vs-actual table and final tuned constants) are filled in.** This is a hard merge gate, consistent
   with this phase's explicit expectation of iterative tuning against real footage.
 - `calibration_report.py`, `RTMPoseModel`, and `ObjectDetectionModel` are unmodified.

@@ -68,10 +68,12 @@ logic.
 - **Unit tests** for `segment_serves`, the three new phase heuristics (including their fallback paths),
   and the combined-signal `racket_drop`, following the existing `make_frame`/`TROPHY_KPS` fixture style.
 - **Manual, opt-in, iterative re-validation** against the real serve videos in `calibration_data/` —
-  `serve_4.mov` (the only original calibration video containing two serves, per its console log) plus
-  additional multi-serve videos the user is adding specifically to stress-test `segment_serves` across more
-  than one multi-serve example, each with a known expected serve count supplied when the video is added.
-  Following Phase 6's precedent, this group expects to *tune* the new module constants against what the
+  none of the original four calibration videos actually contain more than one serve (`serve_4.mov`'s
+  console log logs two segments, `Serve 1/2`/`Serve 2/2`, but that's on-device Vision's own segmentation
+  over-splitting a single real serve — confirmed against the actual footage, not reliable ground truth).
+  The user is adding dedicated multi-serve videos specifically to stress-test `segment_serves`, each with a
+  known expected serve count supplied when the video is added. Following Phase 6's precedent, this group
+  expects to *tune* the new module constants against what the
   reports show, not just observe them once. New videos need no companion `_console.txt` (that format is
   Lite-mode-only, for `calibration_report.py`) — `segmentation_report.py` runs the off-device pose/detection
   models directly on the video, so any `*.mov`/`*.MOV` dropped into `calibration_data/` is picked up
@@ -94,7 +96,7 @@ logic.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Multi-serve splitting: in scope | `segment_serves(frames) -> list[list[Frame]]`, new dormant function in `phases.py` | User correction: needed for the Assessment (P6) workflow, which the roadmap explicitly ties to "automatic per-serve detection (P4)." `serve_4.mov`'s existing two-serve recording is a ready-made real-footage validation case. |
+| Multi-serve splitting: in scope | `segment_serves(frames) -> list[list[Frame]]`, new dormant function in `phases.py` | User correction: needed for the Assessment (P6) workflow, which the roadmap explicitly ties to "automatic per-serve detection (P4)." None of the original four calibration videos are actually multi-serve, so the user is adding dedicated multi-serve footage for this phase's real-footage validation. |
 | Serve-boundary detection approach | Frame-to-frame pose-keypoint velocity; split after a sustained low-velocity window (`MIN_REST_SECONDS`) that follows genuine motion | User-selected over "return-to-ready-stance detection" — velocity-based splitting doesn't couple to the `start` heuristic's own definition, and is more general-purpose (works even if a player's ready stance varies serve to serve). |
 | Velocity/rest-window units: time-based, not frame-count-based | `_frame_velocity` normalizes displacement by each pair of frames' real `timestamp` delta (units/second); `MIN_REST_SECONDS` measures cumulative real time of a rest run, not a raw frame count | User correction, prompted by adding `vesa_slow_mo.mov` (confirmed ~58.4 fps vs. ~30 fps for the other calibration videos — genuinely slow-motion, not just a name). A frame-count-based threshold would need separate tuning per frame rate; time-based normalization uses `Frame.timestamp` (already populated by `sample_video_frames`) to make the same constants valid across both. |
 | `racket_drop` combination rule | Weighted combination, not fallback-only: normalize the elbow-y-rise signal and the racket-bbox-center-y signal (inverted, since lower = more dropped) across the trophy→contact window, then pick the frame maximizing a weighted average of whichever signals are available for it. `RACKET_DROP_ELBOW_WEIGHT` / `RACKET_DROP_RACKET_WEIGHT` (default 0.5/0.5) are named, tunable constants. With `detections=None`, the racket term is never available for any frame, so the result reduces to the original elbow-only ranking — fully backward compatible. | User correction: combine both signals rather than racket-first-fallback-to-elbow, since neither signal alone is fully reliable (P3: 74.1% racket detection, and the pre-existing elbow heuristic was only ever calibrated against on-device Vision, without racket data at all). |
@@ -118,19 +120,22 @@ logic.
 - `backend/app/engine/rules.py`'s `evaluate_rules` already looks up `phase_frames.get(rule.phase)` per
   rule and skips missing phases — adding new `ServePhase` members with no corresponding `rules.json`
   entries yet is safe and requires no `rules.py` change.
-- `backend/tools/calibration_data/` holds four real serve videos, gitignored and local-only — the same
-  footage P3's benchmark ran against. Three contain a single `Serve 1/1` console-log entry; `serve_4.mov`
-  contains two (`Serve 1/2`, `Serve 2/2`), making it this phase's original multi-serve validation case.
-  `calibration_report.py`'s existing `generate_html` already sections its report per-serve (built for
-  exactly this kind of multi-serve-per-video case, using on-device Vision's own boundary detection) —
-  `segmentation_report.py` follows the same per-serve sectioning convention, but with boundaries produced
-  by the new off-device `segment_serves` instead.
-- The user added two further videos to `calibration_data/` to give `segment_serves` more than one
-  multi-serve example to prove out against (`serve_4.mov` alone was a single data point):
+- `backend/tools/calibration_data/` holds four original real serve videos, gitignored and local-only — the
+  same footage P3's benchmark ran against. All four are actually single-serve: three contain a single
+  `Serve 1/1` console-log entry; `serve_4.mov`'s console log shows two (`Serve 1/2`, `Serve 2/2`), but that
+  reflects on-device Vision's own segmentation over-splitting one real serve into two logged segments, not
+  an actual second serve (confirmed against the footage) — a small, concrete illustration of exactly the
+  on-device segmentation unreliability Phase 6 already concluded, and a reminder that these console logs
+  are Vision's own guess, not ground truth. `calibration_report.py`'s existing `generate_html` already
+  sections its report per-serve (built for multi-serve-per-video cases in general, using on-device Vision's
+  own boundary detection) — `segmentation_report.py` follows the same per-serve sectioning convention, but
+  with boundaries produced by the new off-device `segment_serves` instead.
+- The user added two further videos to `calibration_data/` specifically because none of the original four
+  are actually multi-serve, and `segment_serves` needs real multi-serve footage to prove out against:
   `ag_three_serves.MOV` (expected 3 serves, ~30 fps) and `vesa_slow_mo.mov` (expected 1 serve, confirmed
   ~58.4 fps — genuinely slow-motion, not just a name, vs. ~30 fps for every other calibration video).
   Discovering the real fps difference is what prompted the time-based (not frame-count-based) redesign of
-  `segment_serves` above. Both videos' expected counts are recorded in `validation.md`'s expected-vs-actual
+  `segment_serves` above. All videos' expected counts are recorded in `validation.md`'s expected-vs-actual
   table.
 - **Three-mode product architecture:** per `specs/mission.md`'s isolation rule, this phase's code is
   Pro-2D/3D-only and additive. It must not modify `PhaseReviewView`, the Lite pipeline/segmentation
