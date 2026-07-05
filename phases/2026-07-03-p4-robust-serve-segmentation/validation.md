@@ -11,8 +11,8 @@ Phase P4 is complete when all of the following pass.
 | `ServePhase` has six members with unchanged existing string values | `python -c "from app.models import ServePhase; print(list(ServePhase))"` from `backend/` — six entries; `ServePhase.trophy_pose.value == 'trophy_pose'` etc. unchanged. |
 | `segment_serves([])` returns `[]` | `pytest backend/tests/test_segment_serves.py -v -k test_empty_frames_returns_empty_list` |
 | A continuously-active frame sequence returns exactly one segment | `pytest backend/tests/test_segment_serves.py -v -k test_single_serve_no_rest_gap_returns_one_segment` |
-| Two active bursts separated by a rest run `>= MIN_REST_FRAMES` split into two segments at the rest run's midpoint | `pytest backend/tests/test_segment_serves.py -v -k test_two_serves_separated_by_rest_gap_returns_two_segments` |
-| A rest run shorter than `MIN_REST_FRAMES` does not split | `pytest backend/tests/test_segment_serves.py -v -k test_short_rest_gap_does_not_split` |
+| Two active bursts separated by a rest run `>= MIN_REST_SECONDS` split into two segments at the rest run's midpoint | `pytest backend/tests/test_segment_serves.py -v -k test_two_serves_separated_by_rest_gap_returns_two_segments` |
+| A rest run shorter than `MIN_REST_SECONDS` does not split | `pytest backend/tests/test_segment_serves.py -v -k test_short_rest_gap_does_not_split` |
 | Leading idle before the first active burst is not split into its own segment | `pytest backend/tests/test_segment_serves.py -v -k test_leading_idle_not_split_off` |
 | Trailing idle after the last active burst is not split into its own segment | `pytest backend/tests/test_segment_serves.py -v -k test_trailing_idle_not_split_off` |
 | `_frame_velocity` ignores keypoints below `MIN_CONFIDENCE` | `pytest backend/tests/test_segment_serves.py -v -k test_velocity_ignores_low_confidence_keypoints` |
@@ -58,11 +58,11 @@ Phase P4 is complete when all of the following pass.
 | Check | How to verify |
 |---|---|
 | `segmentation_report.py` runs end-to-end against every video in `calibration_data/`, including any newly-added ones | `cd backend && python tools/segmentation_report.py` — completes without error. |
-| **Every** multi-serve video splits into exactly its known expected serve count | Open each `serve_N_segmentation/report.html` and compare against the expected-count table below. `serve_4.mov` (two serves) plus any newly-added multi-serve videos must all match. If any don't, tune `MIN_REST_FRAMES`/`LOW_MOTION_VELOCITY_THRESHOLD` and re-run until all of them do — this is a hard requirement for merge. |
+| **Every** multi-serve video splits into exactly its known expected serve count | Open each `serve_N_segmentation/report.html` and compare against the expected-count table below. `serve_4.mov` (two serves) plus any newly-added multi-serve videos must all match. If any don't, tune `MIN_REST_SECONDS`/`LOW_MOTION_VELOCITY_THRESHOLD` and re-run until all of them do — this is a hard requirement for merge. |
 | Every single-serve video still produces exactly one serve section | Open each `serve_N_segmentation/report.html` for the single-serve videos — one section each, no spurious splits introduced by whatever constants were tuned to satisfy the multi-serve videos above. |
 | Visual spot-check of all six phases across every detected serve section | Record which phases (if any) resolved to `None`, and anything visually wrong, in the run notes below. |
 | Qualitative comparison of combined-signal `racket_drop` vs. the prior elbow-only result for at least one video with a reliably-detected racket in the trophy→contact window | Recorded in run notes below. |
-| Final tuned constant values recorded | `MIN_REST_FRAMES`, `LOW_MOTION_VELOCITY_THRESHOLD`, `RACKET_DROP_ELBOW_WEIGHT`, `RACKET_DROP_RACKET_WEIGHT` — whatever values `phases.py` ends up with after iteration, transcribed into the run notes below. |
+| Final tuned constant values recorded | `MIN_REST_SECONDS`, `LOW_MOTION_VELOCITY_THRESHOLD`, `RACKET_DROP_ELBOW_WEIGHT`, `RACKET_DROP_RACKET_WEIGHT` — whatever values `phases.py` ends up with after iteration, transcribed into the run notes below. |
 | No regression to existing backend endpoints/tests | `pytest backend/` includes and passes all pre-existing test files. |
 | No iOS files touched | `git diff --name-only develop...HEAD` contains no changes under `App/`. |
 
@@ -74,7 +74,8 @@ Phase P4 is complete when all of the following pass.
 | `serve_2.mov` | 1 | — |
 | `serve_3.mov` | 1 | — |
 | `serve_4.mov` | 2 | — |
-| *(new videos added here)* | | |
+| `ag_three_serves.MOV` | 3 | — |
+| `vesa_slow_mo.mov` | 1 | — |
 
 **Run notes:**
 

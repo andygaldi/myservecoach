@@ -21,12 +21,16 @@
 2. In `backend/app/engine/phases.py`, add `import math` and these module-level tunable constants near the
    top (below `HANDEDNESS`):
    ```python
-   MIN_REST_FRAMES = 5
-   LOW_MOTION_VELOCITY_THRESHOLD = 0.02
+   MIN_REST_SECONDS = 0.2
+   LOW_MOTION_VELOCITY_THRESHOLD = 0.15  # normalized units per second
    ```
 3. Add `def _frame_velocity(a: Frame, b: Frame) -> float:` — mean Euclidean distance, in normalized
    coordinates, across keypoints present in both frames above `MIN_CONFIDENCE` (import `MIN_CONFIDENCE`
-   from `app.engine.angles`, alongside the existing `compute_angle`/`joint_xy`/`keypoint_y` imports):
+   from `app.engine.angles`, alongside the existing `compute_angle`/`joint_xy`/`keypoint_y` imports),
+   **normalized by the real time elapsed between the two frames** so the result is frame-rate-invariant
+   (units/second, not units/frame-step) — this matters because `calibration_data/vesa_slow_mo.mov` is
+   captured at ~58.4 fps vs. ~30 fps for the other calibration videos, so a per-frame-step (not per-second)
+   threshold would need separate tuning per source frame rate:
    ```python
    def _frame_velocity(a: Frame, b: Frame) -> float:
        shared = set(a.keypoints) & set(b.keypoints)
@@ -36,13 +40,18 @@
            if kp_a.confidence < MIN_CONFIDENCE or kp_b.confidence < MIN_CONFIDENCE:
                continue
            distances.append(math.hypot(kp_a.x - kp_b.x, kp_a.y - kp_b.y))
-       return sum(distances) / len(distances) if distances else 0.0
+       if not distances:
+           return 0.0
+       mean_distance = sum(distances) / len(distances)
+       dt = b.timestamp - a.timestamp
+       return mean_distance / dt if dt > 0 else mean_distance
    ```
-4. Add `def segment_serves(frames: list[Frame], min_rest_frames: int = MIN_REST_FRAMES, velocity_threshold: float = LOW_MOTION_VELOCITY_THRESHOLD) -> list[list[Frame]]:`:
+4. Add `def segment_serves(frames: list[Frame], min_rest_seconds: float = MIN_REST_SECONDS, velocity_threshold: float = LOW_MOTION_VELOCITY_THRESHOLD) -> list[list[Frame]]:`.
+   Tracks rest-run duration via each frame's real `timestamp`, not a raw frame count:
    ```python
    def segment_serves(
        frames: list[Frame],
-       min_rest_frames: int = MIN_REST_FRAMES,
+       min_rest_seconds: float = MIN_REST_SECONDS,
        velocity_threshold: float = LOW_MOTION_VELOCITY_THRESHOLD,
    ) -> list[list[Frame]]:
        if not frames:
@@ -55,8 +64,10 @@
        for i in range(1, len(frames)):
            velocity = _frame_velocity(frames[i - 1], frames[i])
            if velocity >= velocity_threshold:
-               if rest_run_start is not None and has_seen_active and (i - rest_run_start) >= min_rest_frames:
-                   boundaries.append((rest_run_start + i - 1) // 2)
+               if rest_run_start is not None and has_seen_active:
+                   rest_duration = frames[i - 1].timestamp - frames[rest_run_start].timestamp
+                   if rest_duration >= min_rest_seconds:
+                       boundaries.append((rest_run_start + i - 1) // 2)
                rest_run_start = None
                has_seen_active = True
            elif rest_run_start is None:
@@ -72,27 +83,35 @@
    ```
    (Leading idle before the first active frame is never split off, since `has_seen_active` is `False`
    until the first high-velocity transition; trailing idle after the last active frame never closes a
-   rest run into a boundary, since the loop ends before another high-velocity frame appears.)
+   rest run into a boundary, since the loop ends before another high-velocity frame appears. Because the
+   duration check uses real timestamps, the same `min_rest_seconds` value behaves consistently whether the
+   source video is ~30 fps or ~58 fps.)
 5. Write `backend/tests/test_segment_serves.py` (new file), following `test_phases.py`'s `make_frame`
-   fixture style (`from conftest import make_frame`):
+   fixture style (`from conftest import make_frame`), using realistic ~30fps-equivalent timestamps
+   (`i / 30.0`) for the "normal" fixtures below unless noted otherwise:
    - `test_empty_frames_returns_empty_list`
    - `test_single_serve_no_rest_gap_returns_one_segment`: a sequence of frames with continuously-changing
      keypoints (velocity always above threshold) → `len(segments) == 1`.
    - `test_two_serves_separated_by_rest_gap_returns_two_segments`: build ~6 "active" frames (changing
-     keypoints), then `MIN_REST_FRAMES + 2` "rest" frames (identical keypoints, velocity `0.0`), then ~6
-     more "active" frames — assert `len(segments) == 2` and that the split point falls within the rest
-     run (assert the last frame of segment 1 and first frame of segment 2 are on either side of the
-     rest-run midpoint).
-   - `test_short_rest_gap_does_not_split`: a rest run shorter than `MIN_REST_FRAMES` between two active
-     bursts → `len(segments) == 1` (brief mid-serve pause, e.g. a stutter in the toss, must not fragment
-     one serve into two).
+     keypoints), then enough identical-keypoint "rest" frames to span at least `MIN_REST_SECONDS` of
+     timestamp delta, then ~6 more "active" frames — assert `len(segments) == 2` and that the split point
+     falls within the rest run (assert the last frame of segment 1 and first frame of segment 2 are on
+     either side of the rest-run midpoint).
+   - `test_short_rest_gap_does_not_split`: a rest run spanning less than `MIN_REST_SECONDS` between two
+     active bursts → `len(segments) == 1` (brief mid-serve pause, e.g. a stutter in the toss, must not
+     fragment one serve into two).
    - `test_leading_idle_not_split_off`: several identical (zero-velocity) frames *before* the first active
-     burst, long enough to exceed `MIN_REST_FRAMES` → assert the leading idle frames remain attached to
-     the first (only) segment, not split into their own empty-ish segment.
+     burst, spanning more than `MIN_REST_SECONDS` → assert the leading idle frames remain attached to the
+     first (only) segment, not split into their own empty-ish segment.
    - `test_trailing_idle_not_split_off`: symmetric case after the only active burst.
    - `test_velocity_ignores_low_confidence_keypoints`: two frames with identical high-confidence keypoints
      but wildly different low-confidence (`< MIN_CONFIDENCE`) keypoint values → `_frame_velocity` returns
      `0.0` (or near it), confirming low-confidence noise doesn't register as motion.
+   - `test_segmentation_is_fps_invariant`: build two versions of the same two-serve motion pattern — one
+     with `i / 30.0` timestamps (30fps-equivalent) and one with `i / 58.4` timestamps and twice as many
+     frames covering the same real duration with proportionally smaller per-step keypoint displacement
+     (58.4fps-equivalent, matching `vesa_slow_mo.mov`'s actual measured rate) — assert `segment_serves`
+     returns the same segment count (`2`) for both, using the same default constants.
 6. Run `pytest backend/tests/test_segment_serves.py -v` — confirm all pass.
 
 ## Group 2 — New Phase Heuristics: Start, Release, Finish (surface: `backend`)
@@ -203,7 +222,7 @@
 
 ## Group 3 — Combined-Signal Racket Drop (surface: `backend`)
 
-15. In `backend/app/engine/phases.py`, add two more tunable constants near `MIN_REST_FRAMES`:
+15. In `backend/app/engine/phases.py`, add two more tunable constants near `MIN_REST_SECONDS`:
     ```python
     RACKET_DROP_ELBOW_WEIGHT = 0.5
     RACKET_DROP_RACKET_WEIGHT = 0.5
@@ -345,7 +364,7 @@
     For **every** multi-serve video (`serve_4.mov` and any newly-added ones), confirm `segment_serves`
     produced the exact expected number of serve sections recorded in step 33 — this is the phase's real
     multi-serve ground truth, now spanning more than one example. If any video over- or under-splits,
-    adjust `MIN_REST_FRAMES` / `LOW_MOTION_VELOCITY_THRESHOLD` in `phases.py` and re-run this tool (no test
+    adjust `MIN_REST_SECONDS` / `LOW_MOTION_VELOCITY_THRESHOLD` in `phases.py` and re-run this tool (no test
     changes needed — these are runtime-tunable module constants) until **all** multi-serve videos split
     correctly and the single-serve videos still produce exactly one section each.
 36. For each detected serve section, visually spot-check all six phase frames, paying particular attention

@@ -16,7 +16,7 @@ could not reliably provide:
 This is backend-only, developer-tooling-adjacent work: no new iOS surface, no `/v1/analyze` caller yet
 (that's P6), and no change to any Lite-mode file. **This phase's heuristics are expected to need real-footage
 iteration** (per Phase 6's precedent) — several thresholds are exposed as named, tunable module constants
-specifically so Group 6 (manual re-validation) can adjust them against real serves without touching test
+specifically so Group 5 (manual re-validation) can adjust them against real serves without touching test
 logic.
 
 ## In Scope
@@ -24,12 +24,14 @@ logic.
 - **`ServePhase` enum** (`backend/app/models.py`) gains three new members: `start`, `release`, `finish`,
   alongside the existing `trophy_pose`, `racket_drop`, `contact`.
 - **New `segment_serves(frames: list[Frame]) -> list[list[Frame]]`** in `phases.py` — splits a continuous
-  frame sequence into per-serve sub-lists using frame-to-frame pose-keypoint velocity: a serve boundary is
-  declared after a sustained low-velocity ("rest") window of at least `MIN_REST_FRAMES` frames that is
-  preceded by genuine motion (so leading/trailing idle padding at the very start/end of the clip is never
-  split off as its own empty "serve"). `MIN_REST_FRAMES` and `LOW_MOTION_VELOCITY_THRESHOLD` are named,
-  tunable module constants. This is a dormant, unit-tested service-layer function — no in-app caller yet,
-  matching P1's precedent for introducing capabilities ahead of their eventual (P6/P7) wiring.
+  frame sequence into per-serve sub-lists using frame-to-frame pose-keypoint velocity, normalized by each
+  frame's real `timestamp` delta (units/second, not units/frame-step) so the heuristic is invariant to the
+  source video's frame rate. A serve boundary is declared after a sustained low-velocity ("rest") window
+  spanning at least `MIN_REST_SECONDS` of real time that is preceded by genuine motion (so leading/trailing
+  idle padding at the very start/end of the clip is never split off as its own empty "serve").
+  `MIN_REST_SECONDS` and `LOW_MOTION_VELOCITY_THRESHOLD` are named, tunable module constants. This is a
+  dormant, unit-tested service-layer function — no in-app caller yet, matching P1's precedent for
+  introducing capabilities ahead of their eventual (P6/P7) wiring.
 - **`detect_phases` signature extended** to
   `detect_phases(frames: list[Frame], detections: list[list[Detection]] | None = None) -> dict[ServePhase, Frame | None]`,
   operating on one serve's frames (i.e., one element of `segment_serves`'s output, or any pre-segmented
@@ -93,13 +95,14 @@ logic.
 | Decision | Choice | Rationale |
 |---|---|---|
 | Multi-serve splitting: in scope | `segment_serves(frames) -> list[list[Frame]]`, new dormant function in `phases.py` | User correction: needed for the Assessment (P6) workflow, which the roadmap explicitly ties to "automatic per-serve detection (P4)." `serve_4.mov`'s existing two-serve recording is a ready-made real-footage validation case. |
-| Serve-boundary detection approach | Frame-to-frame pose-keypoint velocity; split after a sustained low-velocity window (`MIN_REST_FRAMES`) that follows genuine motion | User-selected over "return-to-ready-stance detection" — velocity-based splitting doesn't couple to the `start` heuristic's own definition, and is more general-purpose (works even if a player's ready stance varies serve to serve). |
+| Serve-boundary detection approach | Frame-to-frame pose-keypoint velocity; split after a sustained low-velocity window (`MIN_REST_SECONDS`) that follows genuine motion | User-selected over "return-to-ready-stance detection" — velocity-based splitting doesn't couple to the `start` heuristic's own definition, and is more general-purpose (works even if a player's ready stance varies serve to serve). |
+| Velocity/rest-window units: time-based, not frame-count-based | `_frame_velocity` normalizes displacement by each pair of frames' real `timestamp` delta (units/second); `MIN_REST_SECONDS` measures cumulative real time of a rest run, not a raw frame count | User correction, prompted by adding `vesa_slow_mo.mov` (confirmed ~58.4 fps vs. ~30 fps for the other calibration videos — genuinely slow-motion, not just a name). A frame-count-based threshold would need separate tuning per frame rate; time-based normalization uses `Frame.timestamp` (already populated by `sample_video_frames`) to make the same constants valid across both. |
 | `racket_drop` combination rule | Weighted combination, not fallback-only: normalize the elbow-y-rise signal and the racket-bbox-center-y signal (inverted, since lower = more dropped) across the trophy→contact window, then pick the frame maximizing a weighted average of whichever signals are available for it. `RACKET_DROP_ELBOW_WEIGHT` / `RACKET_DROP_RACKET_WEIGHT` (default 0.5/0.5) are named, tunable constants. With `detections=None`, the racket term is never available for any frame, so the result reduces to the original elbow-only ranking — fully backward compatible. | User correction: combine both signals rather than racket-first-fallback-to-elbow, since neither signal alone is fully reliable (P3: 74.1% racket detection, and the pre-existing elbow heuristic was only ever calibrated against on-device Vision, without racket data at all). |
 | `finish` foot selection | Front (leading) foot — the toss-side ankle (opposite the hitting arm; `left_ankle` for the current `HANDEDNESS["hitting"] == "right"`) | User-selected. Matches the Kovacs model's "front-foot landing" description and standard serve biomechanics, rather than the literal (hitting-side) right foot. |
 | `release` ball-detection handling | Ball-detection primary (first frame where a detected ball's bbox is above the toss hand), toss-wrist-rise fallback when the ball is never detected anywhere in the sequence | User-selected. Degrades gracefully given P3's confirmed 10.8% ball-detection rate — most serves will likely use the fallback path today, but the primary path activates automatically as ball-detection quality improves later. |
 | `start` heuristic | `argmin(toss_wrist_y)` searched over `frames[0:release_idx]` (or `frames[0:trophy_idx]` if `release` is unresolved) | User-selected over velocity-sign-change detection. Mirrors the existing `argmax` pattern already used for `contact`; deterministic and unit-testable; avoids the velocity-only approach Phase 6 already concluded was unreliable alone. |
 | Re-validation tooling | New `backend/tools/segmentation_report.py`, reusing `pose_benchmark.py`'s frame sampling and `calibration_report.py`'s `_img_tag`/CSS/per-serve-sectioning pattern via import; `calibration_report.py` itself unchanged | Avoids conflating the Lite-mode (on-device-Vision-console-log input, 3-phase) tool with the new Pro-mode (off-device-model, video-only input, 6-phase, multi-serve) workflow — mirrors P3's precedent of a new tool importing shared helpers rather than mutating an existing one. |
-| Iterative tuning is an explicit part of Group 6 | `MIN_REST_FRAMES`, `LOW_MOTION_VELOCITY_THRESHOLD`, `RACKET_DROP_ELBOW_WEIGHT`, `RACKET_DROP_RACKET_WEIGHT` are named module constants in `phases.py`, tuned during the manual real-footage run rather than fixed a priori | User noted iteration will likely be needed to "nail down rules" — mirrors Phase 6's own precedent of adjusting heuristics against real footage until they visually hold up. |
+| Iterative tuning is an explicit part of Group 5 | `MIN_REST_SECONDS`, `LOW_MOTION_VELOCITY_THRESHOLD`, `RACKET_DROP_ELBOW_WEIGHT`, `RACKET_DROP_RACKET_WEIGHT` are named module constants in `phases.py`, tuned during the manual real-footage run rather than fixed a priori | User noted iteration will likely be needed to "nail down rules" — mirrors Phase 6's own precedent of adjusting heuristics against real footage until they visually hold up. |
 
 ## Context
 
@@ -122,10 +125,13 @@ logic.
   exactly this kind of multi-serve-per-video case, using on-device Vision's own boundary detection) —
   `segmentation_report.py` follows the same per-serve sectioning convention, but with boundaries produced
   by the new off-device `segment_serves` instead.
-- The user is adding further multi-serve videos to `calibration_data/` specifically to give `segment_serves`
-  more than one multi-serve example to prove out against (`serve_4.mov` alone is a single data point). Each
-  added video comes with a known expected serve count, recorded in `validation.md`'s Group 5 run notes
-  alongside the actual detected count.
+- The user added two further videos to `calibration_data/` to give `segment_serves` more than one
+  multi-serve example to prove out against (`serve_4.mov` alone was a single data point):
+  `ag_three_serves.MOV` (expected 3 serves, ~30 fps) and `vesa_slow_mo.mov` (expected 1 serve, confirmed
+  ~58.4 fps — genuinely slow-motion, not just a name, vs. ~30 fps for every other calibration video).
+  Discovering the real fps difference is what prompted the time-based (not frame-count-based) redesign of
+  `segment_serves` above. Both videos' expected counts are recorded in `validation.md`'s expected-vs-actual
+  table.
 - **Three-mode product architecture:** per `specs/mission.md`'s isolation rule, this phase's code is
   Pro-2D/3D-only and additive. It must not modify `PhaseReviewView`, the Lite pipeline/segmentation
   services, or `ContentView`. Lite mode's on-device 3-phase flow and its own serve-boundary detection
