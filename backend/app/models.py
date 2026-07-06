@@ -13,15 +13,32 @@ class Frame(BaseModel):
     keypoints: dict[str, Keypoint]
 
 
+class BoundingBox(BaseModel):
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+
+
+class Detection(BaseModel):
+    label: str
+    confidence: float
+    bbox: BoundingBox
+
+
 class AnalyzeRequest(BaseModel):
     frames: list[Frame] = Field(min_length=1)
+    detections: list[list[Detection]] | None = None
     session_id: str | None = None
 
 
 class ServePhase(str, Enum):
+    start = "start"
+    release = "release"
     trophy_pose = "trophy_pose"
     racket_drop = "racket_drop"
     contact = "contact"
+    finish = "finish"
 
 
 class Severity(str, Enum):
@@ -43,19 +60,6 @@ class AnalyzeResponse(BaseModel):
 
 class PoseResponse(BaseModel):
     frames: list[Frame]
-
-
-class BoundingBox(BaseModel):
-    x_min: float
-    y_min: float
-    x_max: float
-    y_max: float
-
-
-class Detection(BaseModel):
-    label: str
-    confidence: float
-    bbox: BoundingBox
 
 
 class DetectionFrame(BaseModel):
