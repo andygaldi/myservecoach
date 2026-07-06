@@ -135,3 +135,24 @@ async def test_bad_elbow_angle_returns_trophy_racket_elbow_flexion_cue(transport
     assert body.cues[0].severity == "major"
     assert "racket arm" in body.cues[0].message
     assert body.summary is None
+
+
+# --- Extended contract: optional `detections` field ---
+
+@pytest.mark.asyncio
+async def test_detections_field_accepted_returns_200(transport):
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/analyze",
+            json={"frames": [VALID_FRAME], "detections": [[]]},
+        )
+    assert response.status_code == 200
+    AnalyzeResponse.model_validate(response.json())
+
+
+@pytest.mark.asyncio
+async def test_detections_field_omitted_still_returns_200(transport):
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/v1/analyze", json={"frames": [VALID_FRAME]})
+    assert response.status_code == 200
+    AnalyzeResponse.model_validate(response.json())

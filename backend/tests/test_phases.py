@@ -1,7 +1,23 @@
 import pytest
-from app.models import Frame, Keypoint, ServePhase
-from app.engine.phases import detect_phases
+from app.models import BoundingBox, Detection, Frame, Keypoint, ServePhase
+from app.engine.phases import _min_max_normalize, detect_phases
 from conftest import make_frame
+
+
+def _ball_detection(center_y: float, confidence: float = 0.9) -> Detection:
+    return Detection(
+        label="ball",
+        confidence=confidence,
+        bbox=BoundingBox(x_min=0.4, x_max=0.42, y_min=center_y - 0.01, y_max=center_y + 0.01),
+    )
+
+
+def _racket_detection(center_y: float, confidence: float = 0.9) -> Detection:
+    return Detection(
+        label="racket",
+        confidence=confidence,
+        bbox=BoundingBox(x_min=0.4, x_max=0.42, y_min=center_y - 0.01, y_max=center_y + 0.01),
+    )
 
 
 # Canonical trophy-pose keypoints for a right-handed player:
@@ -188,3 +204,193 @@ def test_racket_drop_none_when_no_elbow_data_in_range():
 
     result = detect_phases([f0, f1, f2])
     assert result[ServePhase.racket_drop] is None
+
+
+# --- Release detection ---
+
+def test_release_ball_primary_when_ball_ever_detected():
+    # Toss wrist never rises above the shoulder in f0 (fallback would pick f1), but a ball is
+    # detected above the toss hand in f0 — the ball-primary path must take priority.
+    f0 = make_frame({"left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 0.0)
+    f1 = make_frame({"left_wrist": {"x": 0.3, "y": 0.6, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 1.0)
+    detections = [[_ball_detection(0.9)], []]
+
+    result = detect_phases([f0, f1], detections)
+    assert result[ServePhase.release] is f0
+
+
+def test_release_falls_back_to_toss_wrist_when_ball_never_detected():
+    f0 = make_frame({"left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 0.0)
+    f1 = make_frame({"left_wrist": {"x": 0.3, "y": 0.6, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 1.0)
+    detections = [[_racket_detection(0.9)], []]  # racket only, no ball anywhere
+
+    result = detect_phases([f0, f1], detections)
+    assert result[ServePhase.release] is f1
+
+
+def test_release_falls_back_when_detections_is_none():
+    f0 = make_frame({"left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 0.0)
+    f1 = make_frame({"left_wrist": {"x": 0.3, "y": 0.6, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 1.0)
+
+    result = detect_phases([f0, f1])
+    assert result[ServePhase.release] is f1
+
+
+def test_release_none_when_toss_never_rises_and_no_ball():
+    f0 = make_frame({"left_wrist": {"x": 0.3, "y": 0.2, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 0.0)
+
+    result = detect_phases([f0])
+    assert result[ServePhase.release] is None
+
+
+# --- Start detection ---
+
+def test_start_is_lowest_toss_wrist_before_release():
+    f0 = make_frame({"left_wrist": {"x": 0.3, "y": 0.3, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 0.0)
+    f1 = make_frame({"left_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9},  # lowest toss wrist
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 1.0)
+    f2 = make_frame({"left_wrist": {"x": 0.3, "y": 0.6, "confidence": 0.9},  # release
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 2.0)
+
+    result = detect_phases([f0, f1, f2])
+    assert result[ServePhase.release] is f2
+    assert result[ServePhase.start] is f1
+
+
+def test_start_falls_back_to_trophy_bound_when_no_release():
+    # Ball is detected but never rises above the toss hand, so release stays None (ball-primary
+    # path is active and never satisfied) even though a trophy pose still resolves from pose data.
+    f0 = make_frame({**TROPHY_KPS, "left_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9}}, 0.0)  # low toss wrist
+    f1 = make_frame(TROPHY_KPS, 1.0)  # trophy
+    detections = [[_ball_detection(0.05)], [_ball_detection(0.05)]]  # ball always low
+
+    result = detect_phases([f0, f1], detections)
+    assert result[ServePhase.release] is None
+    assert result[ServePhase.trophy_pose] is f1
+    assert result[ServePhase.start] is f0
+
+
+def test_start_none_when_neither_release_nor_trophy_resolve():
+    f0 = make_frame({"left_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9},
+                      "left_shoulder": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 0.0)
+
+    result = detect_phases([f0])
+    assert result[ServePhase.release] is None
+    assert result[ServePhase.trophy_pose] is None
+    assert result[ServePhase.start] is None
+
+
+# --- Finish detection ---
+
+def test_finish_is_lowest_front_foot_after_contact():
+    f0 = make_frame(TROPHY_KPS, 0.0)  # trophy
+    f1 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.95, "confidence": 0.9}}, 1.0)  # contact
+    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.5, "confidence": 0.9},
+                      "left_ankle": {"x": 0.4, "y": 0.2, "confidence": 0.9}}, 2.0)  # lowest front foot
+    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.3, "confidence": 0.9},
+                      "left_ankle": {"x": 0.4, "y": 0.5, "confidence": 0.9}}, 3.0)
+
+    result = detect_phases([f0, f1, f2, f3])
+    assert result[ServePhase.contact] is f1
+    assert result[ServePhase.finish] is f2
+
+
+def test_finish_falls_back_to_last_frame_when_no_ankle_data_after_contact():
+    f0 = make_frame(TROPHY_KPS, 0.0)  # trophy
+    f1 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.95, "confidence": 0.9}}, 1.0)  # contact
+    f2 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.8, "y": 0.5, "confidence": 0.9}}, 2.0)  # no ankle data
+
+    result = detect_phases([f0, f1, f2])
+    assert result[ServePhase.contact] is f1
+    assert result[ServePhase.finish] is f2
+
+
+def test_finish_falls_back_to_last_frame_when_no_contact():
+    f0 = make_frame({"left_wrist": {"x": 0.3, "y": 0.1, "confidence": 0.9}}, 0.0)
+    f1 = make_frame({"left_wrist": {"x": 0.3, "y": 0.05, "confidence": 0.9}}, 1.0)
+
+    result = detect_phases([f0, f1])
+    assert result[ServePhase.contact] is None
+    assert result[ServePhase.finish] is f1
+
+
+# --- Combined-signal racket-drop detection ---
+
+def test_racket_drop_combines_elbow_and_racket_signals():
+    # frame1: strongest elbow rise (+0.4), no racket detection
+    # frame2: weaker elbow rise (+0.1), best (lowest) racket signal
+    # frame3: weakest elbow rise (+0.05), mid racket signal
+    # Elbow-only ranking would pick frame1; the weighted combination must pick frame2 instead.
+    f0 = make_frame(TROPHY_KPS, 0.0)  # trophy; right_elbow y=0.5
+    f1 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 0.9, "confidence": 0.9}}, 1.0)
+    f2 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 1.0, "confidence": 0.9}}, 2.0)
+    f3 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 1.05, "confidence": 0.9}}, 3.0)
+    f4 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.4, "y": 1.5, "confidence": 0.9}}, 4.0)  # contact
+
+    detections = [
+        [],
+        [_racket_detection(0.9)],   # frame1: racket not dropped
+        [_racket_detection(0.05)],  # frame2: racket most dropped
+        [_racket_detection(0.5)],   # frame3: racket mid-dropped
+        [],
+    ]
+
+    result = detect_phases([f0, f1, f2, f3, f4], detections)
+    assert result[ServePhase.contact] is f4
+    assert result[ServePhase.racket_drop] is f2
+
+
+def test_racket_drop_all_existing_elbow_only_tests_pass_with_no_detections():
+    # Re-exercises the fixture from test_racket_drop_is_frame_with_largest_elbow_rise with the
+    # extended detect_phases signature (detections omitted) — confirms the combined-signal
+    # rewrite reduces to the original elbow-only ranking when no detections are supplied.
+    f0 = make_frame(TROPHY_KPS, 0.0)
+    f1 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 0.4, "confidence": 0.9}}, 1.0)
+    f2 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 0.8, "confidence": 0.9}}, 2.0)
+    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.4, "y": 0.95, "confidence": 0.9}}, 3.0)
+
+    result = detect_phases([f0, f1, f2, f3])
+    assert result[ServePhase.racket_drop] is f2
+
+
+def test_racket_drop_ignores_ball_detections():
+    f0 = make_frame(TROPHY_KPS, 0.0)
+    f1 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 0.4, "confidence": 0.9}}, 1.0)  # elbow dips
+    f2 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 0.8, "confidence": 0.9}}, 2.0)  # biggest rise
+    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.4, "y": 0.95, "confidence": 0.9}}, 3.0)  # contact
+
+    detections = [
+        [],
+        [_ball_detection(0.02)],  # ball at its lowest point on frame1 — must not influence racket_drop
+        [],
+        [],
+    ]
+
+    result = detect_phases([f0, f1, f2, f3], detections)
+    assert result[ServePhase.racket_drop] is f2  # unchanged from the elbow-only ranking
+
+
+def test_racket_drop_detections_shorter_than_frames():
+    f0 = make_frame(TROPHY_KPS, 0.0)
+    f1 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 0.4, "confidence": 0.9}}, 1.0)
+    f2 = make_frame({**TROPHY_KPS, "right_elbow": {"x": 0.4, "y": 0.8, "confidence": 0.9}}, 2.0)
+    f3 = make_frame({**TROPHY_KPS, "right_wrist": {"x": 0.4, "y": 0.95, "confidence": 0.9}}, 3.0)
+
+    detections = [[]]  # shorter than frames — must not raise IndexError
+
+    result = detect_phases([f0, f1, f2, f3], detections)
+    assert result[ServePhase.racket_drop] is f2
+
+
+def test_min_max_normalize_handles_equal_values():
+    assert _min_max_normalize({1: 5.0, 2: 5.0, 3: 5.0}) == {1: 1.0, 2: 1.0, 3: 1.0}
+    assert _min_max_normalize({7: 3.0}) == {7: 1.0}
+    assert _min_max_normalize({}) == {}
