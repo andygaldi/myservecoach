@@ -105,7 +105,7 @@ Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases betwee
 
 **Pro 2D mode coaching (P5–P7)** — the first fully usable Pro experience; iPhone-only, no stereo hardware needed. The coaching engine built in Lite Phases 3–4 is dormant in Lite mode; these phases activate it for Pro 2D mode. **A mode-selection step (Lite / Pro 2D / Pro 3D) at session setup gates which pipeline runs; Pro coaching screens introduced by P6+ are separate from the Lite `PhaseReviewView`/comparison flow and do not modify it.**
 
-### Phase P4b — Segmentation Heuristic Refinement ⬜
+### Phase P4b — Segmentation Heuristic Refinement ✅
 
 Iterate on P4's six-frame segmentation and phase-detection heuristics against more real
 footage, before P5 calibrates rule thresholds against them. Re-tunes the tunable constants

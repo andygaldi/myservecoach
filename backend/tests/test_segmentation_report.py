@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.models import BoundingBox, Detection, Frame, Keypoint, ServePhase
 from tools.segmentation_report import (
     _PHASE_LABELS,
+    _build_arg_parser,
     build_frame_sequence,
     generate_segmentation_html,
     run_segmentation_report,
@@ -179,6 +180,10 @@ class TestRunSegmentationReport:
         video_output_dir = report_root / "serve_x_segmentation"
         jpegs = list((video_output_dir / "frames").glob("*.jpg"))
         assert len(jpegs) == 12  # 60 frames / stride 5
+
+
+def test_default_stride_is_two():
+    assert _build_arg_parser().get_default("stride") == 2
 
 
 def test_no_real_model_construction_in_this_file():
