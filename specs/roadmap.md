@@ -105,6 +105,21 @@ Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases betwee
 
 **Pro 2D mode coaching (P5–P7)** — the first fully usable Pro experience; iPhone-only, no stereo hardware needed. The coaching engine built in Lite Phases 3–4 is dormant in Lite mode; these phases activate it for Pro 2D mode. **A mode-selection step (Lite / Pro 2D / Pro 3D) at session setup gates which pipeline runs; Pro coaching screens introduced by P6+ are separate from the Lite `PhaseReviewView`/comparison flow and do not modify it.**
 
+### Phase P4b — Segmentation Heuristic Refinement ✅
+
+Iterate on P4's six-frame segmentation and phase-detection heuristics against more real
+footage, before P5 calibrates rule thresholds against them. Re-tunes the tunable constants
+(`MIN_REST_SECONDS`, `LOW_MOTION_VELOCITY_THRESHOLD`, `RACKET_DROP_ELBOW_WEIGHT`,
+`RACKET_DROP_RACKET_WEIGHT`) against additional calibration videos, and revisits any of the
+`start`/`trophy_pose`/`contact`/`racket_drop`/`finish` heuristics found to be unreliable — for
+example, `trophy_pose`/`racket_drop` landing less cleanly on some real footage, or `racket_drop`
+failing when `trophy_pose`/`contact` resolve to adjacent sampled frames because the whole
+Cocking→Contact motion fell within a single sample step (a denser default `--stride` and a more
+robust `contact` signal — e.g. racket/ball proximity, not just peak wrist height — are both
+candidates). Extends `backend/app/engine/phases.py` and `backend/tools/segmentation_report.py`;
+does not change the
+six-frame model's shape, the `ServePhase` enum, or anything outside the Pro 2D/3D pipeline.
+
 ### Phase P5 — Rule Calibration (2D)
 
 Ground the `rules.json` thresholds in real 2D-measured joint angles now that reliable phase frames are available from P4. Run `backend/tools/analyze_angles.py` against the validated P4 phase frames and compare measured 2D joint angles against the current thresholds; update, add, remove, or re-weight rules accordingly. Note the 2D-projection caveat — foreshortening from a single camera systematically underestimates angles like shoulder external rotation; these thresholds serve Pro 2D mode and are re-derived on 3D angles for Pro 3D mode in Phase P10.

@@ -1,14 +1,37 @@
 import math
 
-from app.models import Detection, Frame, ServePhase
-from app.engine.angles import compute_angle, joint_xy, keypoint_y, MIN_CONFIDENCE
+from app.models import BoundingBox, Detection, Frame, ServePhase
+from app.engine.angles import (
+    arm_straightness_angle,
+    forearm_angle_from_vertical,
+    hip_height,
+    keypoint_y,
+    knee_flexion_angle,
+    MIN_CONFIDENCE,
+)
 
 HANDEDNESS: dict[str, str] = {"hitting": "right", "toss": "left"}
 
-MIN_REST_SECONDS = 0.4
+MIN_REST_SECONDS = 0.3
 LOW_MOTION_VELOCITY_THRESHOLD = 0.03  # normalized units per second
-RACKET_DROP_ELBOW_WEIGHT = 0.5
-RACKET_DROP_RACKET_WEIGHT = 0.5
+CONTACT_WRIST_WEIGHT = 0.5
+CONTACT_PROXIMITY_WEIGHT = 0.5
+TROPHY_HIP_WEIGHT = 0.5
+TROPHY_TOSS_ARM_WEIGHT = 0.5
+# Trophy pose's window is wide relative to its two candidate frames, so smoothing over nearby
+# frames helps; racket_drop's window is often just 1-4 frames (fast real swings), where the same
+# smoothing dilutes the one true peak more than it removes noise — empirically validated against
+# hand-labeled ground truth, not just theoretical. Each phase gets its own window accordingly.
+TROPHY_SMOOTHING_WINDOW = 3
+RACKET_DROP_SMOOTHING_WINDOW = 1
+# Finish: how far past contact (in real seconds) to search for the landing, and the toss-leg knee
+# angle that marks it. Bounded rather than searching the whole rest of the segment — empirically
+# tuned against hand-labeled ground truth on real-speed footage (0.4s comfortably covers the
+# landing on every real-time-speed calibration video); doesn't generalize to genuinely
+# slow-motion source footage, which isn't representative of the app's live self-recording use
+# case, so that gap is an accepted limitation rather than something this window chases.
+FINISH_WINDOW_SECONDS = 0.4
+FINISH_TARGET_KNEE_ANGLE = 90.0
 
 
 def _frame_velocity(a: Frame, b: Frame) -> float:
@@ -71,11 +94,25 @@ def segment_serves(
     return segments
 
 
+def _bbox_center(bbox: BoundingBox) -> tuple[float, float]:
+    return ((bbox.x_min + bbox.x_max) / 2, (bbox.y_min + bbox.y_max) / 2)
+
+
 def _detection_center_y(dets: list[Detection], label: str) -> float | None:
     detection = next((d for d in dets if d.label == label), None)
     if detection is None:
         return None
-    return (detection.bbox.y_min + detection.bbox.y_max) / 2.0
+    return _bbox_center(detection.bbox)[1]
+
+
+def _racket_ball_distance(dets: list[Detection]) -> float | None:
+    racket = next((d for d in dets if d.label == "racket"), None)
+    ball = next((d for d in dets if d.label == "ball"), None)
+    if racket is None or ball is None:
+        return None
+    racket_x, racket_y = _bbox_center(racket.bbox)
+    ball_x, ball_y = _bbox_center(ball.bbox)
+    return math.hypot(racket_x - ball_x, racket_y - ball_y)
 
 
 def _min_max_normalize(values: dict[int, float]) -> dict[int, float]:
@@ -93,30 +130,107 @@ def _min_max_normalize(values: dict[int, float]) -> dict[int, float]:
     return {i: (v - lo) / (hi - lo) for i, v in values.items()}
 
 
+def _smooth_series(values: dict[int, float], window: int) -> dict[int, float]:
+    """Centered moving-average smoothing over a sparse {frame_index: value} series.
+
+    Averages each entry with its nearest available neighbors *by position within the series*
+    (not by raw frame-index distance, since some frames may be missing due to low-confidence
+    keypoints) — damps single-frame outliers before a max/min search picks a winner.
+    """
+    if not values:
+        return {}
+    ordered = sorted(values)
+    half = window // 2
+    smoothed: dict[int, float] = {}
+    for pos, i in enumerate(ordered):
+        neighborhood = ordered[max(0, pos - half) : pos + half + 1]
+        smoothed[i] = sum(values[n] for n in neighborhood) / len(neighborhood)
+    return smoothed
+
+
+def _find_contact_idx(
+    frames: list[Frame], detections: list[list[Detection]] | None, hitting: str, search_start: int
+) -> int | None:
+    """Combined wrist-height + racket-ball-proximity contact search from `search_start` onward.
+
+    Falls back to wrist-height-only when no detections are available or racket+ball aren't both
+    detected in a given frame. Factored out because trophy_pose's search window is bounded by a
+    preliminary contact estimate computed *before* trophy_idx is known (see detect_phases), and
+    the final post-trophy contact search reuses the same logic.
+    """
+    wrist_heights: dict[int, float] = {}
+    for i in range(search_start, len(frames)):
+        wrist_y = keypoint_y(frames[i], f"{hitting}_wrist")
+        if wrist_y is not None:
+            wrist_heights[i] = wrist_y
+
+    proximities: dict[int, float] = {}
+    if detections is not None:
+        for i in range(search_start, len(frames)):
+            if i >= len(detections):
+                continue
+            distance = _racket_ball_distance(detections[i])
+            if distance is not None:
+                proximities[i] = -distance  # lower distance (closer) => higher score
+
+    wrist_norm = _min_max_normalize(wrist_heights)
+    proximity_norm = _min_max_normalize(proximities)
+    return _weighted_best([(CONTACT_WRIST_WEIGHT, wrist_norm), (CONTACT_PROXIMITY_WEIGHT, proximity_norm)])
+
+
+def _weighted_best(signals: list[tuple[float, dict[int, float]]]) -> int | None:
+    """Pick the frame index with the highest weighted-average score across normalized signals.
+
+    Each `(weight, normalized_map)` pair contributes only for frames present in its map, so a
+    frame missing some signals is scored on whichever ones it has. Iterates candidate indices in
+    ascending order with a strict `>` comparison, so the first frame to reach the max score wins
+    ties — matching plain max-search semantics over an ordered sequence.
+    """
+    candidate_indices = set()
+    for _, signal in signals:
+        candidate_indices |= set(signal)
+
+    best_idx: int | None = None
+    best_score = float("-inf")
+    for i in sorted(candidate_indices):
+        parts = [(weight, signal[i]) for weight, signal in signals if i in signal]
+        total_weight = sum(w for w, _ in parts)
+        score = sum(w * v for w, v in parts) / total_weight if total_weight else float("-inf")
+        if score > best_score:
+            best_score = score
+            best_idx = i
+    return best_idx
+
+
 def detect_phases(
     frames: list[Frame], detections: list[list[Detection]] | None = None
 ) -> dict[ServePhase, Frame | None]:
     hitting = HANDEDNESS["hitting"]
     toss = HANDEDNESS["toss"]
 
-    # 0. Release: first frame where a detected ball is above the toss hand, if the ball is ever
-    #    detected anywhere in the sequence; otherwise the earliest frame where the toss wrist rises
-    #    above the toss shoulder.
-    ball_ever_detected = detections is not None and any(
-        _detection_center_y(dets, "ball") is not None for dets in detections
-    )
-
+    # 0. Release: first frame where a detected ball is above the toss hand *and* the toss wrist
+    #    has already risen above the toss shoulder. The wrist-above-shoulder condition guards
+    #    against a low-confidence ball detection while the ball is still held pre-toss (bent-over
+    #    setup stance, wrist low) — a single such frame used to be enough to trigger release far
+    #    too early, since the ball-alone condition never checked whether the toss motion had
+    #    actually begun. Falls back to the toss-wrist-only condition if no frame satisfies the
+    #    combined ball condition (e.g. the ball isn't reliably detected during the real toss arc
+    #    for a given video — object detection can lose a small fast-moving ball to motion blur).
     release_idx: int | None = None
-    if ball_ever_detected:
+    if detections is not None:
         for i, frame in enumerate(frames):
-            if detections is None or i >= len(detections):
+            if i >= len(detections):
                 continue
             ball_y = _detection_center_y(detections[i], "ball")
             toss_wrist_y = keypoint_y(frame, f"{toss}_wrist")
-            if ball_y is not None and toss_wrist_y is not None and ball_y > toss_wrist_y:
+            toss_shoulder_y = keypoint_y(frame, f"{toss}_shoulder")
+            if ball_y is None or toss_wrist_y is None or toss_shoulder_y is None:
+                continue
+            if ball_y > toss_wrist_y and toss_wrist_y > toss_shoulder_y:
                 release_idx = i
                 break
-    else:
+
+    if release_idx is None:
         for i, frame in enumerate(frames):
             toss_wrist_y = keypoint_y(frame, f"{toss}_wrist")
             toss_shoulder_y = keypoint_y(frame, f"{toss}_shoulder")
@@ -126,44 +240,37 @@ def detect_phases(
                 release_idx = i
                 break
 
-    # 1. Trophy pose: first qualifying frame whose hitting elbow angle (shoulder→elbow→wrist)
-    #    falls within [80°, 100°]. Falls back to the first qualifying frame with no elbow
-    #    data if no in-range frame exists.
-    #    Conditions:
-    #      - toss wrist y > toss shoulder y
-    #      - hitting wrist y > hitting hip y
-    #      - if hitting elbow present: hitting wrist y > hitting elbow y
-    trophy_idx: int | None = None
-    trophy_no_elbow_idx: int | None = None
-    for i, frame in enumerate(frames):
-        toss_wrist_y = keypoint_y(frame, f"{toss}_wrist")
-        toss_shoulder_y = keypoint_y(frame, f"{toss}_shoulder")
-        hitting_wrist_y = keypoint_y(frame, f"{hitting}_wrist")
-        hitting_hip_y = keypoint_y(frame, f"{hitting}_hip")
+    # 1. Trophy pose: combined lowest-hip-height + straightest-toss-arm signal, bounded to
+    #    [release, contact) so the search can't wander into an unrelated part of the clip (e.g. a
+    #    non-serve motion elsewhere in the segment). Contact isn't known yet at this point, so a
+    #    throwaway *preliminary* contact estimate (searched from release onward) stands in for the
+    #    window's upper bound; the real contact_idx used everywhere else is recomputed below once
+    #    trophy_idx is known. Hip height (the loading crouch depth) and toss-arm straightness (the
+    #    tossing arm extended toward the ball) were selected empirically against hand-labeled
+    #    ground truth over several other candidates (knee flexion, hitting-elbow height/angle) —
+    #    each raw signal is smoothed across nearby frames before scoring, so a single noisy frame
+    #    can't unduly swing the pick.
+    trophy_search_start = release_idx if release_idx is not None else 0
+    prelim_contact_idx = _find_contact_idx(frames, detections, hitting, trophy_search_start)
+    trophy_search_end = prelim_contact_idx + 1 if prelim_contact_idx is not None else len(frames)
 
-        if any(v is None for v in [toss_wrist_y, toss_shoulder_y, hitting_wrist_y, hitting_hip_y]):
-            continue
-        if toss_wrist_y <= toss_shoulder_y:
-            continue
-        if hitting_wrist_y <= hitting_hip_y:
-            continue
-        hitting_elbow_y = keypoint_y(frame, f"{hitting}_elbow")
-        if hitting_elbow_y is not None and hitting_wrist_y <= hitting_elbow_y:
-            continue
+    hip_heights: dict[int, float] = {}
+    toss_arm_angles: dict[int, float] = {}
+    for i in range(trophy_search_start, trophy_search_end):
+        frame = frames[i]
+        hip_y = hip_height(frame, hitting)
+        if hip_y is not None:
+            hip_heights[i] = hip_y
+        arm_angle = arm_straightness_angle(frame, toss)
+        if arm_angle is not None:
+            toss_arm_angles[i] = arm_angle
 
-        shoulder_xy = joint_xy(frame, f"{hitting}_shoulder")
-        elbow_xy = joint_xy(frame, f"{hitting}_elbow")
-        wrist_xy = joint_xy(frame, f"{hitting}_wrist")
-        if shoulder_xy is not None and elbow_xy is not None and wrist_xy is not None:
-            angle = compute_angle(shoulder_xy, elbow_xy, wrist_xy)
-            if angle is not None and 70.0 <= angle <= 110.0:
-                trophy_idx = i
-                break
-        elif trophy_no_elbow_idx is None:
-            trophy_no_elbow_idx = i
+    # Negate hip height before normalizing so a lower (more-crouched) raw value scores higher;
+    # toss-arm straightness is already "higher is better" (closer to a fully extended 180°).
+    hip_norm = _min_max_normalize({i: -v for i, v in _smooth_series(hip_heights, TROPHY_SMOOTHING_WINDOW).items()})
+    toss_arm_norm = _min_max_normalize(_smooth_series(toss_arm_angles, TROPHY_SMOOTHING_WINDOW))
 
-    if trophy_idx is None:
-        trophy_idx = trophy_no_elbow_idx
+    trophy_idx = _weighted_best([(TROPHY_HIP_WEIGHT, hip_norm), (TROPHY_TOSS_ARM_WEIGHT, toss_arm_norm)])
 
     # 1b. Start: the frame with the lowest toss-wrist height, searched before release (or before
     #     trophy pose if release didn't resolve) — marks the bottom of the toss backswing right
@@ -178,67 +285,54 @@ def detect_phases(
                 min_toss_wrist_y = toss_wrist_y
                 start_idx = i
 
-    # 2. Contact: maximum hitting wrist y after trophy pose.
-    #    Falls back to the full sequence when no trophy is detected.
-    contact_idx: int | None = None
-    search_start = trophy_idx + 1 if trophy_idx is not None else 0
-    max_wrist_y = float("-inf")
-    for i in range(search_start, len(frames)):
-        wrist_y = keypoint_y(frames[i], f"{hitting}_wrist")
-        if wrist_y is not None and wrist_y > max_wrist_y:
-            max_wrist_y = wrist_y
-            contact_idx = i
+    # 2. Contact: combined wrist-height + racket-ball-proximity signal, searched from the *final*
+    #    trophy_idx onward (trophy_pose no longer needs contact's search_start as an input — see
+    #    the preliminary-contact estimate above — so this just reruns the same search with the
+    #    now-known real trophy_idx). Falls back to the full sequence when no trophy is detected.
+    contact_search_start = trophy_idx + 1 if trophy_idx is not None else 0
+    contact_idx = _find_contact_idx(frames, detections, hitting, contact_search_start)
 
-    # 3. Racket drop: frame strictly between trophy and contact whose combined elbow-rise and
-    #    racket-bbox-depth signal scores highest. Each signal is min-max normalized across the
-    #    window and weighted by RACKET_DROP_ELBOW_WEIGHT / RACKET_DROP_RACKET_WEIGHT; a frame with
-    #    only one signal available is scored on that signal alone. With no detections at all, the
-    #    racket term is never available, so the ranking reduces to the elbow-only heuristic.
+    # 3. Racket drop: frame strictly between trophy and contact with the highest smoothed
+    #    shoulder-external-rotation proxy (forearm-to-vertical angle — see
+    #    angles.forearm_angle_from_vertical). 2D keypoints can't measure the humerus's true axial
+    #    rotation, but the forearm's visible swing from pointing up (trophy) to pointing down and
+    #    behind the body (fully cocked) peaks at the "back-scratch" position this phase marks.
+    #    Smoothed across nearby frames before picking the max to reduce single-frame noise.
     drop_idx: int | None = None
     if trophy_idx is not None and contact_idx is not None:
-        elbow_rises: dict[int, float] = {}
+        er_angles: dict[int, float] = {}
         for i in range(trophy_idx + 1, contact_idx):
-            elbow_y_curr = keypoint_y(frames[i], f"{hitting}_elbow")
-            elbow_y_prev = keypoint_y(frames[i - 1], f"{hitting}_elbow")
-            if elbow_y_curr is not None and elbow_y_prev is not None:
-                elbow_rises[i] = elbow_y_curr - elbow_y_prev
+            angle = forearm_angle_from_vertical(frames[i], hitting)
+            if angle is not None:
+                er_angles[i] = angle
 
-        racket_depths: dict[int, float] = {}
-        if detections is not None:
-            for i in range(trophy_idx + 1, contact_idx):
-                if i >= len(detections):
-                    continue
-                center_y = _detection_center_y(detections[i], "racket")
-                if center_y is not None:
-                    racket_depths[i] = -center_y  # lower center_y (more dropped) => higher score
+        drop_idx = _weighted_best([(1.0, _smooth_series(er_angles, RACKET_DROP_SMOOTHING_WINDOW))])
 
-        elbow_norm = _min_max_normalize(elbow_rises)
-        racket_norm = _min_max_normalize(racket_depths)
-
-        best_score = float("-inf")
-        for i in set(elbow_norm) | set(racket_norm):
-            parts = []
-            if i in elbow_norm:
-                parts.append((RACKET_DROP_ELBOW_WEIGHT, elbow_norm[i]))
-            if i in racket_norm:
-                parts.append((RACKET_DROP_RACKET_WEIGHT, racket_norm[i]))
-            total_weight = sum(w for w, _ in parts)
-            score = sum(w * v for w, v in parts) / total_weight if total_weight else float("-inf")
-            if score > best_score:
-                best_score = score
-                drop_idx = i
-
-    # 4. Finish: the frame with the lowest front (leading, toss-side) foot height after contact —
-    #    marks the front-foot landing. Falls back to the last frame when there's no post-contact
-    #    ankle data, or no contact at all.
+    # 4. Finish: within FINISH_WINDOW_SECONDS after contact, the frame whose toss-side (landing)
+    #    knee flexion is closest to FINISH_TARGET_KNEE_ANGLE — the front leg absorbing the
+    #    landing. Bounded to a short post-contact window rather than searching the rest of the
+    #    segment: the prior ankle-height heuristic could fall through to the segment's last frame
+    #    when no clear post-contact dip existed, landing many seconds late whenever trailing
+    #    footage (walking, resetting) was included in the serve segment. Falls back to the last
+    #    frame of the same bounded window (not the whole segment) if no knee data resolves within
+    #    it, and to the segment's last frame only when there's no contact at all.
     finish_idx: int | None = None
     if contact_idx is not None:
-        min_front_foot_y = float("inf")
-        for i in range(contact_idx + 1, len(frames)):
-            front_foot_y = keypoint_y(frames[i], f"{toss}_ankle")
-            if front_foot_y is not None and front_foot_y < min_front_foot_y:
-                min_front_foot_y = front_foot_y
-                finish_idx = i
+        contact_ts = frames[contact_idx].timestamp
+        window_end = contact_idx + 1
+        while window_end < len(frames) and frames[window_end].timestamp - contact_ts <= FINISH_WINDOW_SECONDS:
+            window_end += 1
+
+        landing_scores: dict[int, float] = {}
+        for i in range(contact_idx + 1, window_end):
+            angle = knee_flexion_angle(frames[i], toss)
+            if angle is not None:
+                landing_scores[i] = -abs(angle - FINISH_TARGET_KNEE_ANGLE)
+
+        if landing_scores:
+            finish_idx = _weighted_best([(1.0, landing_scores)])
+        elif window_end > contact_idx + 1:
+            finish_idx = window_end - 1
     if finish_idx is None:
         finish_idx = len(frames) - 1 if frames else None
 

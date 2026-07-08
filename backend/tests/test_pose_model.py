@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from app.services.pose_model import COCO17_KEYPOINT_NAMES, map_coco17_to_backend_schema
+from app.services.pose_model import COCO17_KEYPOINT_NAMES, map_coco17_to_backend_schema, select_primary_person
 
 WIDTH = 100
 HEIGHT = 200
@@ -95,3 +95,56 @@ def test_all_zero_confidence_still_produces_well_formed_output():
     assert result["right_wrist"].confidence == 0.0
     assert result["neck"].confidence == 0.0
     assert result["pelvis"].confidence == 0.0
+
+
+# --- Primary-person selection (multi-person crowd scenes) ---
+
+def _person(spread: float, confidence: float, n_keypoints: int = 17) -> tuple[np.ndarray, np.ndarray]:
+    """A synthetic person's (keypoints, scores) with all keypoints confidently spread
+    over an area of side length `spread` pixels, centered arbitrarily."""
+    keypoints = np.array([[i * (spread / n_keypoints), i * (spread / n_keypoints)] for i in range(n_keypoints)])
+    scores = np.full(n_keypoints, confidence)
+    return keypoints, scores
+
+
+def test_select_primary_person_picks_largest_bbox_area():
+    # A small, tight crowd-member cluster at index 0; a much larger foreground-player spread at
+    # index 1 — the largest-area person must win even though it isn't index 0.
+    crowd_kp, crowd_sc = _person(spread=20.0, confidence=0.9)
+    player_kp, player_sc = _person(spread=400.0, confidence=0.7)
+    keypoints = np.array([crowd_kp, player_kp])
+    scores = np.array([crowd_sc, player_sc])
+
+    assert select_primary_person(keypoints, scores) == 1
+
+
+def test_select_primary_person_ignores_low_confidence_keypoints_when_computing_area():
+    # Index 0: a tiny confident cluster plus a handful of far-flung low-confidence noise
+    # keypoints. If the noise were wrongly counted, index 0's apparent bbox (spanning 0..900)
+    # would dwarf index 1's — the noise must be excluded so index 1 (modest but fully
+    # confident, and genuinely larger once noise is correctly ignored) wins instead.
+    tight_kp = np.array([[0.0, 0.0]] * 12 + [[900.0, 900.0]] * 5)
+    tight_sc = np.array([0.9] * 12 + [0.1] * 5)  # noise points below MIN_CONFIDENCE (0.4)
+    modest_kp, modest_sc = _person(spread=50.0, confidence=0.9)
+
+    keypoints = np.array([tight_kp, modest_kp])
+    scores = np.array([tight_sc, modest_sc])
+
+    assert select_primary_person(keypoints, scores) == 1
+
+
+def test_select_primary_person_defaults_to_first_when_no_confident_keypoints():
+    low_kp, low_sc = _person(spread=500.0, confidence=0.1)  # all below MIN_CONFIDENCE
+    other_low_kp, other_low_sc = _person(spread=10.0, confidence=0.2)
+    keypoints = np.array([low_kp, other_low_kp])
+    scores = np.array([low_sc, other_low_sc])
+
+    assert select_primary_person(keypoints, scores) == 0
+
+
+def test_select_primary_person_single_person_returns_zero():
+    kp, sc = _person(spread=100.0, confidence=0.9)
+    keypoints = np.array([kp])
+    scores = np.array([sc])
+
+    assert select_primary_person(keypoints, scores) == 0

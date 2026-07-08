@@ -12,12 +12,19 @@ each showing all six phase frames — for visual spot-check and heuristic-consta
 Usage:
     python backend/tools/segmentation_report.py \\
         --videos     "backend/tools/calibration_data/*.mov" \\
-        --stride     5 \\
+        --stride     2 \\
         --report-dir backend/tools/calibration_data
+
+Note: the default --stride is 2, denser than P3/P4's --stride 5, specifically to catch fast
+swings whose entire Cocking->Contact motion could otherwise fall entirely between two sampled
+frames (see phases/2026-07-06-p4b-segmentation-heuristic-refinement/requirements.md Context).
 
 Output:
     <report-dir>/<video_stem>_segmentation/report.html   — open in any browser
-    <report-dir>/<video_stem>_segmentation/frames/         — raw JPEG frames
+    <report-dir>/<video_stem>_segmentation/frames/         — JPEG frames annotated with the pose
+                                                              skeleton and racket/ball detection
+                                                              boxes (pose_benchmark.py's
+                                                              draw_overlay)
 """
 
 import argparse
@@ -35,7 +42,7 @@ from app.models import Detection, Frame, ServePhase
 from app.services.object_detection import get_object_detection_model
 from app.services.pose_model import get_pose_model
 from tools.calibration_report import _img_tag
-from tools.pose_benchmark import _resolve_videos, _TOOLS_DIR, sample_video_frames
+from tools.pose_benchmark import _resolve_videos, _TOOLS_DIR, draw_overlay, sample_video_frames
 
 
 _PHASE_LABELS: dict[str, str] = {
@@ -144,6 +151,18 @@ def generate_segmentation_html(
     return report_path
 
 
+def slice_detections_by_segments(
+    detections: list[list[Detection]], segments: list[list[Frame]]
+) -> list[list[list[Detection]]]:
+    """Slice a flat per-frame detections list at the same boundaries segment_serves used for frames."""
+    serve_detections: list[list[list[Detection]]] = []
+    cursor = 0
+    for segment in segments:
+        serve_detections.append(detections[cursor : cursor + len(segment)])
+        cursor += len(segment)
+    return serve_detections
+
+
 def run_segmentation_report(
     video_paths: list[Path], stride: int, pose_model, detection_model, report_root: Path
 ) -> list[Path]:
@@ -158,19 +177,14 @@ def run_segmentation_report(
         frames_dir.mkdir(parents=True, exist_ok=True)
 
         frame_paths: dict[float, Path] = {}
-        for i, (frame, image) in enumerate(zip(frames, images)):
+        for i, (frame, image, dets) in enumerate(zip(frames, images, detections)):
             frame_path = frames_dir / f"frame{i:03d}.jpg"
-            cv2.imwrite(str(frame_path), image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            annotated = draw_overlay(image, frame.keypoints, dets)
+            cv2.imwrite(str(frame_path), annotated, [cv2.IMWRITE_JPEG_QUALITY, 85])
             frame_paths[frame.timestamp] = frame_path
 
         serve_segments = segment_serves(frames)
-
-        # Slice the parallel detections list at the same boundaries segment_serves used for frames.
-        serve_detections: list[list[list[Detection]]] = []
-        cursor = 0
-        for segment in serve_segments:
-            serve_detections.append(detections[cursor : cursor + len(segment)])
-            cursor += len(segment)
+        serve_detections = slice_detections_by_segments(detections, serve_segments)
 
         phase_results = [
             detect_phases(segment, segment_dets)
@@ -194,7 +208,7 @@ def run_segmentation_report(
 # tools resolve videos from backend/tools/, matching both .mov and .MOV).
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run off-device serve segmentation + six-frame phase detection against real footage."
     )
@@ -202,11 +216,16 @@ def main() -> None:
         "--videos", default=str(_TOOLS_DIR / "calibration_data" / "*.mov"),
         help="Glob pattern for input videos (matches both .mov and .MOV).",
     )
-    parser.add_argument("--stride", type=int, default=5, help="Sample every Nth video frame.")
+    parser.add_argument("--stride", type=int, default=2, help="Sample every Nth video frame.")
     parser.add_argument(
         "--report-dir", type=Path, default=_TOOLS_DIR / "calibration_data",
         help="Parent directory under which each <video_stem>_segmentation/ report is written.",
     )
+    return parser
+
+
+def main() -> None:
+    parser = _build_arg_parser()
     args = parser.parse_args()
 
     video_paths = _resolve_videos(args.videos)
