@@ -120,7 +120,7 @@ candidates). Extends `backend/app/engine/phases.py` and `backend/tools/segmentat
 does not change the
 six-frame model's shape, the `ServePhase` enum, or anything outside the Pro 2D/3D pipeline.
 
-### Phase P5 — Rule Calibration (2D)
+### Phase P5 — Rule Calibration (2D) ✅
 
 Ground the `rules.json` thresholds in real 2D-measured joint angles now that reliable phase frames are available from P4. Run `backend/tools/analyze_angles.py` against the validated P4 phase frames and compare measured 2D joint angles against the current thresholds; update, add, remove, or re-weight rules accordingly. Note the 2D-projection caveat — foreshortening from a single camera systematically underestimates angles like shoulder external rotation; these thresholds serve Pro 2D mode and are re-derived on 3D angles for Pro 3D mode in Phase P10.
 

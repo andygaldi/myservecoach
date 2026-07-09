@@ -94,7 +94,7 @@ def segment_serves(
     return segments
 
 
-def _bbox_center(bbox: BoundingBox) -> tuple[float, float]:
+def bbox_center(bbox: BoundingBox) -> tuple[float, float]:
     return ((bbox.x_min + bbox.x_max) / 2, (bbox.y_min + bbox.y_max) / 2)
 
 
@@ -102,7 +102,7 @@ def _detection_center_y(dets: list[Detection], label: str) -> float | None:
     detection = next((d for d in dets if d.label == label), None)
     if detection is None:
         return None
-    return _bbox_center(detection.bbox)[1]
+    return bbox_center(detection.bbox)[1]
 
 
 def _racket_ball_distance(dets: list[Detection]) -> float | None:
@@ -110,8 +110,8 @@ def _racket_ball_distance(dets: list[Detection]) -> float | None:
     ball = next((d for d in dets if d.label == "ball"), None)
     if racket is None or ball is None:
         return None
-    racket_x, racket_y = _bbox_center(racket.bbox)
-    ball_x, ball_y = _bbox_center(ball.bbox)
+    racket_x, racket_y = bbox_center(racket.bbox)
+    ball_x, ball_y = bbox_center(ball.bbox)
     return math.hypot(racket_x - ball_x, racket_y - ball_y)
 
 

@@ -33,7 +33,7 @@ COCO17_KEYPOINT_NAMES: list[str] = [
     "right_ankle",
 ]
 
-_FACE_KEYPOINTS = {"nose", "left_eye", "right_eye", "left_ear", "right_ear"}
+_FACE_KEYPOINTS = {"left_eye", "right_eye", "left_ear", "right_ear"}
 
 
 def _midpoint_keypoint(a: Keypoint, b: Keypoint) -> Keypoint:

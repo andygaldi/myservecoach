@@ -25,10 +25,11 @@
     "serve_2.mov": [
       {
         "serve_index": 1,
-        "_note": "trophy_pose intentionally omitted — known near-miss (predicted ~0.9225, labeled 1.127, delta 0.205s vs 0.13s tolerance); investigated and deliberately deferred rather than fixed this round (see validation.md run notes).",
+        "_note": "trophy_pose is a known segmentation near-miss (predicted ~0.9225, labeled 1.127, delta 0.205s vs 0.13s tolerance) — deliberately deferred rather than fixed in P4b (see validation.md run notes there). The label itself (1.127) is unaffected by that segmentation-accuracy gap and is included below for Phase P5 rule calibration, which reads hand-labeled timestamps directly rather than auto-detected frames.",
         "phases": {
           "start": 0.0,
           "release": 0.307,
+          "trophy_pose": 1.127,
           "racket_drop": 1.333,
           "contact": 1.435,
           "finish": 1.674
@@ -99,12 +100,27 @@
     "vesa_slow_mo.mov": [
       {
         "serve_index": 1,
-        "_note": "finish and contact intentionally omitted. finish: this is genuine slow-motion source footage (not representative of the app's live self-recording use case); finish's fixed 0.4s post-contact window is calibrated to real-time footage and doesn't reach the true landing here. contact: the object detector loses both racket and ball right at the true contact instant (motion blur at the fastest, blurriest moment of the swing), so the proximity signal falls back to the nearest frame with an available detection, landing ~0.14s early. Both are real, understood data/detection limitations, not phases.py logic bugs — see validation.md run notes.",
+        "_note": "finish intentionally omitted — this is genuine slow-motion source footage (not representative of the app's live self-recording use case); finish's fixed 0.4s post-contact window is calibrated to real-time footage and doesn't reach the true landing here (see P4b validation.md run notes). contact was added in Phase P5 via direct visual inspection (frame138 of the segmentation report, no stride-2 frame in between) for rule calibration: the object detector loses both racket and ball right at this exact instant (motion blur at the fastest, blurriest moment of the swing) — frame136 shows the ball still approaching, frame140 shows it already separated post-strike, and frame138 has neither detection, consistent with the known ~0.14s-early auto-detection miss documented in P4b.",
         "phases": {
           "start": 0.0,
           "release": 0.308,
           "trophy_pose": 1.472,
-          "racket_drop": 3.662
+          "racket_drop": 3.662,
+          "contact": 4.723
+        }
+      }
+    ],
+    "alcaraz_serve_1.mov": [
+      {
+        "serve_index": 1,
+        "_note": "New in Phase P5 — frame numbers are the user's own hand-picked ground truth (frame 147/201/262/292/303/344 for start/release/trophy_pose/racket_drop/contact/finish; stride 2, fps≈59.911), matching the sampled-frame naming in backend/tools/calibration_data/alcaraz_serve_1_segmentation/frames/. An earlier version of this entry used the agent's own visual re-derivation for release/racket_drop/contact instead of asking for the existing hand-picked frames, which differed by up to 0.4s — corrected here; see phases/2026-07-09-p5-rule-calibration-2d/validation.md run notes for the recalibration this triggered.",
+        "phases": {
+          "start": 4.907,
+          "release": 6.71,
+          "trophy_pose": 8.746,
+          "racket_drop": 9.748,
+          "contact": 10.115,
+          "finish": 11.484
         }
       }
     ]

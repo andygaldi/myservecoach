@@ -3,6 +3,8 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.models import AnalyzeResponse
+from app.engine.rules import _Rule
+import app.engine.rules as rules_module
 
 VALID_FRAME = {
     "timestamp": 0.0,
@@ -112,8 +114,11 @@ async def test_no_detected_phases_returns_empty_response(transport):
 
 
 @pytest.mark.asyncio
-async def test_clean_serve_returns_good_serve_summary(transport):
-    # 3-frame clean serve: trophy detected, all rules pass → no cues, summary set
+async def test_clean_serve_returns_good_serve_summary(transport, monkeypatch):
+    # Router-wiring test, decoupled from rules.json's tunable calibrated content (Phase P5):
+    # with no rules loaded at all, a detected trophy pose and zero cues must still produce the
+    # "good serve" summary — this is the /analyze router's own logic, not a rules.json fact.
+    monkeypatch.setattr(rules_module, "_RULES", [])
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/v1/analyze", json={"frames": CLEAN_SERVE_FRAMES})
     assert response.status_code == 200
@@ -124,16 +129,32 @@ async def test_clean_serve_returns_good_serve_summary(transport):
 
 
 @pytest.mark.asyncio
-async def test_bad_elbow_angle_returns_trophy_racket_elbow_flexion_cue(transport):
+async def test_trophy_rule_violation_returns_cue(transport, monkeypatch):
+    # Router-wiring test, decoupled from rules.json's tunable calibrated content (Phase P5):
+    # a monkeypatched rule keyed to BAD_ELBOW_FRAME's known ~72° hitting-arm angle confirms a
+    # rule violation on a real detected trophy frame surfaces as a cue through the full
+    # request/response cycle, independent of whatever the real calibrated rules.json holds.
+    fixture_rule = _Rule(
+        id="test_elbow_flexion",
+        phase="trophy_pose",
+        metric="angle",
+        joints=["right_shoulder", "right_elbow", "right_wrist"],
+        comparison="range",
+        threshold_min=80,
+        threshold_max=110,
+        severity="major",
+        message="test elbow flexion cue",
+        view="open_side",
+    )
+    monkeypatch.setattr(rules_module, "_RULES", [fixture_rule])
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/v1/analyze", json={"frames": [BAD_ELBOW_FRAME]})
     assert response.status_code == 200
     body = AnalyzeResponse.model_validate(response.json())
     assert len(body.cues) == 1
-    assert body.cues[0].rule_id == "trophy_racket_elbow_flexion"
+    assert body.cues[0].rule_id == "test_elbow_flexion"
     assert body.cues[0].phase == "trophy_pose"
     assert body.cues[0].severity == "major"
-    assert "racket arm" in body.cues[0].message
     assert body.summary is None
 
 
@@ -156,3 +177,54 @@ async def test_detections_field_omitted_still_returns_200(transport):
         response = await client.post("/v1/analyze", json={"frames": [VALID_FRAME]})
     assert response.status_code == 200
     AnalyzeResponse.model_validate(response.json())
+
+
+# --- Phase -> detections wiring (a ball_offset_* rule can only fire through /analyze's
+#     phase_detections plumbing, not from keypoints alone) ---
+
+# Resolves to ServePhase.contact only (no trophy/release/racket_drop signals present, so
+# contact_search_start falls back to 0) via the wrist-height-only contact search.
+CONTACT_ONLY_FRAME = {
+    "timestamp": 0.0,
+    "keypoints": {
+        "right_wrist":   {"x": 0.5, "y": 0.5, "confidence": 0.9},
+        "left_shoulder": {"x": 0.4, "y": 0.6, "confidence": 0.9},
+    },
+}
+
+BALL_OFFSET_RULE = _Rule(
+    id="ball_offset_rule",
+    phase="contact",
+    metric="ball_offset_y",
+    joints=["left_shoulder"],
+    comparison="gte",
+    threshold=999.0,  # always fails once a value is computed
+    severity="major",
+    message="ball offset fired",
+    view="open_side",
+)
+
+
+@pytest.mark.asyncio
+async def test_ball_offset_rule_fires_via_analyze_detections(transport, monkeypatch):
+    monkeypatch.setattr(rules_module, "_RULES", [BALL_OFFSET_RULE])
+    ball_detection = {"label": "ball", "confidence": 0.9, "bbox": {"x_min": 0.35, "y_min": 0.75, "x_max": 0.45, "y_max": 0.85}}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/analyze",
+            json={"frames": [CONTACT_ONLY_FRAME], "detections": [[ball_detection]]},
+        )
+    assert response.status_code == 200
+    body = AnalyzeResponse.model_validate(response.json())
+    assert len(body.cues) == 1
+    assert body.cues[0].rule_id == "ball_offset_rule"
+
+
+@pytest.mark.asyncio
+async def test_ball_offset_rule_does_not_fire_without_detections(transport, monkeypatch):
+    monkeypatch.setattr(rules_module, "_RULES", [BALL_OFFSET_RULE])
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/v1/analyze", json={"frames": [CONTACT_ONLY_FRAME]})
+    assert response.status_code == 200
+    body = AnalyzeResponse.model_validate(response.json())
+    assert body.cues == []
