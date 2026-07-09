@@ -36,6 +36,14 @@ def keypoint_y(frame: Frame, joint_name: str, min_confidence: float = MIN_CONFID
     return kp.y
 
 
+def keypoint_x(frame: Frame, joint_name: str, min_confidence: float = MIN_CONFIDENCE) -> float | None:
+    """Normalized x-coordinate of a joint, or None if below confidence threshold."""
+    kp = frame.keypoints.get(joint_name)
+    if kp is None or kp.confidence < min_confidence:
+        return None
+    return kp.x
+
+
 def knee_flexion_angle(frame: Frame, side: str) -> float | None:
     """Angle in degrees at the `side` knee (hip->knee->ankle). A straight leg is close to 180°;
     smaller angles indicate a more deeply bent (flexed) knee."""
@@ -74,6 +82,20 @@ def arm_straightness_angle(frame: Frame, side: str) -> float | None:
     return compute_angle(shoulder_xy, elbow_xy, wrist_xy)
 
 
+def segment_angle_from_vertical(frame: Frame, joint_a: str, joint_b: str) -> float | None:
+    """Angle in degrees between straight-up vertical (from `joint_a`) and the `joint_a`->`joint_b`
+    segment. 0° when `joint_b` is directly above `joint_a`; grows as the segment tilts away from
+    vertical. General form of the single-joint vertical-deviation angle used by
+    `forearm_angle_from_vertical`.
+    """
+    a_xy = joint_xy(frame, joint_a)
+    b_xy = joint_xy(frame, joint_b)
+    if a_xy is None or b_xy is None:
+        return None
+    straight_up = (a_xy[0], a_xy[1] + 1.0)
+    return compute_angle(straight_up, a_xy, b_xy)
+
+
 def forearm_angle_from_vertical(frame: Frame, side: str) -> float | None:
     """Angle in degrees between the `side` forearm (elbow->wrist) and straight-up vertical.
 
@@ -83,9 +105,4 @@ def forearm_angle_from_vertical(frame: Frame, side: str) -> float | None:
     cocked) — so this angle grows toward 180° at maximum external rotation and shrinks again as
     the arm extends upward into contact.
     """
-    elbow_xy = joint_xy(frame, f"{side}_elbow")
-    wrist_xy = joint_xy(frame, f"{side}_wrist")
-    if elbow_xy is None or wrist_xy is None:
-        return None
-    straight_up = (elbow_xy[0], elbow_xy[1] + 1.0)
-    return compute_angle(straight_up, elbow_xy, wrist_xy)
+    return segment_angle_from_vertical(frame, f"{side}_elbow", f"{side}_wrist")

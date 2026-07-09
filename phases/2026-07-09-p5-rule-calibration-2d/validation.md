@@ -60,24 +60,99 @@ Phase P5 is complete when all of the following pass.
 | Full backend suite green | `pytest backend/` (equivalently `scripts/verify.sh backend`) — zero failures, includes every Group 1–3 addition. |
 | No iOS files touched | `git diff --name-only develop...HEAD` contains no changes under `App/`. |
 
-**Calibrated threshold table (filled in during Group 5):**
+**Calibrated threshold table:**
 
-| Rule id | Metric | Raw envelope (5 refs) | Chosen margin | Final threshold |
+| Rule id | Metric | Raw envelope (5 refs, at hand-labeled frames) | Chosen margin | Final threshold |
 |---|---|---|---|---|
-| `release_toss_arm_straight` | | | | |
-| `release_toss_hand_eye_height` | | | | |
-| `trophy_hitting_elbow_shoulder_line` | | | | |
-| `trophy_toss_arm_straight` | | | | |
-| `trophy_toss_arm_vertical` | | | | |
-| `racket_drop_ball_height` | | | | |
-| `racket_drop_ball_front` | | | | |
-| `contact_left_hip_angle` | | | | |
-| `contact_shoulders_stacked` | | | | |
+| `release_toss_arm_straight` | angle, gte | min=162.70, max=173.29 | −7.7° off min | `gte 155` |
+| `release_toss_hand_eye_height` | y_diff, range | [−0.0204, 0.0736] (superseded; see post-correction note below) | ±0.02 | `range [-0.04, 0.10]` |
+| `trophy_hitting_elbow_shoulder_line` | angle, range | [162.93, 178.81] | ±~8°, capped at 180 | `range [155, 180]` |
+| `trophy_toss_arm_straight` | angle, gte | min=150.40, max=179.65 | −5.4° off min | `gte 145` |
+| `trophy_toss_arm_vertical` | angle_from_vertical, lte | min=1.68, max=35.01 | +10° off max | `lte 45` |
+| `racket_drop_ball_height` | ball_offset_y, range | [0.3067, 0.3766] (n=3 — no ball detected at racket_drop for serve_3/alcaraz) | ±0.03 | `range [0.28, 0.40]` |
+| `racket_drop_ball_front` | ball_offset_x, range | [0.0162, 0.1001] (n=3, same gap) | ±0.02 | `range [-0.01, 0.12]` |
+| `contact_left_hip_angle` | angle, range | [109.60, 141.30] | +14.7/+28.7° (upper widened again post-self-consistency, see below) | `range [95, 170]` |
+| `contact_shoulders_stacked` | x_diff, range | [−0.0701, 0.0150] | ±0.02/0.025 | `range [-0.09, 0.04]` |
 
 **Run notes:**
 
-*(filled in during Group 5 execution — self-consistency result, held-out check findings, any
-threshold direction/sign corrections, and anything disclosed as an out-of-scope exception.)*
+- **`analyze_angles.py` real run** (`cd backend && python tools/analyze_angles.py`, real RTMPose +
+  YOLO models, ~5 min): completed cleanly against all 5 reference serves at each rule's
+  hand-labeled phase timestamp. `racket_drop_ball_height`/`racket_drop_ball_front` only got 3/5
+  values — no ball was detected by the object detector at the `racket_drop` frame for `serve_3.mov`
+  or `alcaraz_serve_1.mov` (motion blur/small-object detection gap, same class of limitation
+  documented for `vesa_slow_mo.mov`'s `contact` in P4b). The 3 available values (`serve_2`,
+  `serve_4`, `vesa_slow_mo`) were tightly clustered, so the envelope is still trusted, but this is a
+  smaller sample than the other 7 rules.
+- **Self-consistency check, round 1 (initial margins):** ad hoc script ran the *real* auto-detection
+  pipeline (`segment_serves` + `detect_phases`, not the hand-labeled timestamps) against all 5
+  reference serves and evaluated the calibrated `rules.json`. 2 of 5 failed:
+  `contact_left_hip_angle` fired on `serve_2.mov` (156.52° vs. the then-threshold_max of 156) and
+  `serve_4.mov` (161.66° vs. 156). Root cause: the real auto-detected `contact` frame landed ~1
+  sampled stride-2 frame (~0.033s) earlier than the hand-labeled frame used for calibration, and
+  the hip-angle metric changes fast at this exact moment in the swing (the lead leg is actively
+  extending) — a single-frame timing difference swung the measured angle by 15–20°, well beyond the
+  original ±15° margin. All other 8 rules passed self-consistency cleanly on round 1.
+- **Fix:** widened `contact_left_hip_angle`'s `threshold_max` from 156 to 170 — comfortably above
+  the observed real-pipeline value of 161.66 (serve_4) with headroom. `threshold_min` (95) was left
+  unchanged since every observed value (hand-labeled and real-pipeline, across all 5 references)
+  stayed ≥107. The wider upper bound doesn't meaningfully weaken the rule's coaching value: a
+  straighter/more-extended leg at contact isn't a real technique flaw, so the rule's useful signal
+  is the lower bound (catching insufficient hip drive), which is unchanged.
+- **Self-consistency check, round 2 (after the fix):** re-ran the same real-pipeline script — **all
+  5 reference serves now produce zero cues** against the calibrated `rules.json`. Confirmed pass.
+- **Held-out check** (`serve_1.MOV`, `ag_three_serves.MOV` — the user's own club-level serves,
+  excluded from calibration, run through the same real auto-detection pipeline): `trophy_toss_arm_vertical`
+  fired on all 4 held-out serves (`serve_1` and all 3 `ag_three_serves` serves) — a consistent
+  pattern suggesting a real, repeatable difference in toss-arm verticality between these serves and
+  the 5 references, plausible and informative rather than a threshold bug (a single reference serve
+  being an outlier wouldn't explain firing on 4/4 held-out serves this uniformly).
+  `racket_drop_ball_front` also fired once (`serve_1.MOV`). No held-out serve tripped
+  `contact_left_hip_angle` after the widening. Per this phase's Not-Required-for-Merge list, this
+  is disclosed as an informative finding, not treated as a failure.
+- `pytest backend/` (full suite, after all fixes): **169 passed, 3 skipped, zero failures.**
+- `git diff --name-only develop...HEAD` contains zero changes under `App/` — confirmed.
+- The ad hoc self-consistency script (`backend/tools/_p5_self_consistency_check.py`, used only for
+  this manual verification) was deleted before merge — not a committed artifact.
+
+**Post-review correction — `alcaraz_serve_1.mov` ground-truth labels (disclosed process error):**
+
+- **What happened:** Group 4's `alcaraz_serve_1.mov` entry (and, independently, the `serve_2.mov`
+  `trophy_pose`/`vesa_slow_mo.mov` `contact` additions) was originally authored by the agent's own
+  visual inspection of the segmentation-report frame images, without first checking whether the user
+  already had hand-picked frame numbers — which they did, for every video in the calibration set.
+  The user supplied the authoritative frame numbers after the fact. Cross-checking all 7 videos'
+  frame numbers against every entry already in `segmentation_ground_truth.json` (existing pre-P5
+  entries plus this phase's 3 additions) confirmed exact agreement everywhere **except**
+  `alcaraz_serve_1.mov`'s `release`/`racket_drop`/`contact` (the agent's `trophy_pose` guess, and the
+  `serve_2`/`vesa_slow_mo` additions, happened to land on the same frame the user had — those needed
+  no change).
+- **Fix:** replaced `alcaraz_serve_1.mov`'s `_note` and `phases` with the user's frame numbers,
+  converted to timestamps via `frame * stride / fps` (stride 2, fps≈59.911) — `start` 147→4.907s,
+  `release` 201→6.71s (was 6.009s), `trophy_pose` 262→8.746s (unchanged), `racket_drop` 292→9.748s
+  (was 9.347s), `contact` 303→10.115s (was 9.981s), `finish` 344→11.484s. `start`/`finish` were added
+  even though P5's rules don't read them, since the authoritative values were available at no extra
+  cost.
+- **Recalibration impact:** re-ran `analyze_angles.py` with the corrected ground truth. Of the 9
+  metrics, only **`release_toss_hand_eye_height`** actually changed envelope: `alcaraz_serve_1`'s
+  value moved from −0.0855 (previously the extreme low value, driving the old `threshold_min` of
+  −0.11) to +0.0272 (no longer extremal — `serve_2.mov` at −0.0204 is now the min). The other 8
+  metrics' min/max envelopes were unaffected — `alcaraz_serve_1` was never the extreme contributor
+  for any of them, before or after the correction (its `trophy_pose`-phase metrics didn't move at
+  all since `trophy_pose`'s frame was already correct; `contact_left_hip_angle`/`shoulders_stacked`
+  and `release_toss_arm_straight` shifted numerically but stayed comfortably inside the existing
+  envelope either way).
+- **Threshold update:** narrowed `release_toss_hand_eye_height`'s `threshold_min` from `-0.11` to
+  `-0.04` (new min −0.0204, same ±0.02 margin convention). Verified against the previously-captured
+  real-auto-detection diagnostic values for all 5 references (−0.0204, −0.0170, 0.0736, −0.0061,
+  −0.0209) — all comfortably inside `[-0.04, 0.10]`, so no further self-consistency risk was
+  introduced by narrowing this bound.
+- **Full self-consistency + held-out re-check** (real pipeline, post-correction): **all 5 reference
+  serves again produce zero cues.** Held-out results on `serve_1.MOV`/`ag_three_serves.MOV` are
+  **unchanged** from the pre-correction run (`trophy_toss_arm_vertical` on all 4 held-out serves,
+  `racket_drop_ball_front` once) — expected, since the held-out check runs the real auto-detection
+  pipeline independent of `segmentation_ground_truth.json` entirely.
+- `pytest backend/` re-run after the correction: **169 passed, 3 skipped, zero failures.**
 
 ## Merge Criteria
 

@@ -79,12 +79,18 @@ def test_pelvis_derived_as_hip_midpoint():
     assert pelvis.confidence == pytest.approx(min(left.confidence, right.confidence))
 
 
-def test_face_keypoints_dropped():
+def test_eyes_and_ears_dropped_but_nose_retained():
     keypoints, scores = _make_coco17_arrays()
     result = map_coco17_to_backend_schema(keypoints, scores, WIDTH, HEIGHT)
 
-    for name in ["nose", "left_eye", "right_eye", "left_ear", "right_ear"]:
+    for name in ["left_eye", "right_eye", "left_ear", "right_ear"]:
         assert name not in result
+
+    idx = COCO17_KEYPOINT_NAMES.index("nose")
+    nose = result["nose"]
+    assert nose.x == pytest.approx(keypoints[idx][0] / WIDTH)
+    assert nose.y == pytest.approx(1.0 - keypoints[idx][1] / HEIGHT)
+    assert nose.confidence == pytest.approx(scores[idx])
 
 
 def test_all_zero_confidence_still_produces_well_formed_output():
