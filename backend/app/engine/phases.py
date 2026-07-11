@@ -94,6 +94,18 @@ def segment_serves(
     return segments
 
 
+def slice_detections_by_segments(
+    detections: list[list[Detection]], segments: list[list[Frame]]
+) -> list[list[list[Detection]]]:
+    """Slice a flat per-frame detections list at the same boundaries segment_serves used for frames."""
+    serve_detections: list[list[list[Detection]]] = []
+    cursor = 0
+    for segment in segments:
+        serve_detections.append(detections[cursor : cursor + len(segment)])
+        cursor += len(segment)
+    return serve_detections
+
+
 def bbox_center(bbox: BoundingBox) -> tuple[float, float]:
     return ((bbox.x_min + bbox.x_max) / 2, (bbox.y_min + bbox.y_max) / 2)
 

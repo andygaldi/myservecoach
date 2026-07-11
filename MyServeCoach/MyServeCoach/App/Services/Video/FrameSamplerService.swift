@@ -7,7 +7,9 @@ final class FrameSamplerService {
     /// Callers that need all frames at once should use `sampleFrames(from:)` instead; callers
     /// that process frames one at a time (to avoid holding all CGImages in memory) should call
     /// this and drive the generator loop themselves.
-    func makeSampler(for asset: AVAsset) async throws -> (generator: AVAssetImageGenerator, times: [CMTime]) {
+    func makeSampler(
+        for asset: AVAsset, stride sampleStride: Int = PoseConstants.kPoseSampleStride
+    ) async throws -> (generator: AVAssetImageGenerator, times: [CMTime]) {
         let tracks = try await asset.loadTracks(withMediaType: .video)
         guard let track = tracks.first else {
             throw FrameSamplerError.noVideoTrack
@@ -18,7 +20,7 @@ final class FrameSamplerService {
         let durationSeconds = CMTimeGetSeconds(duration)
         let totalFrames = Int(durationSeconds * Double(frameRate))
 
-        let times: [CMTime] = stride(from: 0, to: totalFrames, by: PoseConstants.kPoseSampleStride)
+        let times: [CMTime] = stride(from: 0, to: totalFrames, by: sampleStride)
             .map { CMTimeMakeWithSeconds(Double($0) / Double(frameRate), preferredTimescale: 600) }
 
         let generator = AVAssetImageGenerator(asset: asset)
@@ -33,8 +35,10 @@ final class FrameSamplerService {
     /// Returns frames in presentation order. Only use this when all images must be in
     /// memory simultaneously — for long recordings prefer `makeSampler(for:)` with a
     /// streaming loop so each CGImage is released after use.
-    func sampleFrames(from asset: AVAsset) async throws -> [(time: CMTime, image: CGImage)] {
-        let (generator, times) = try await makeSampler(for: asset)
+    func sampleFrames(
+        from asset: AVAsset, stride sampleStride: Int = PoseConstants.kPoseSampleStride
+    ) async throws -> [(time: CMTime, image: CGImage)] {
+        let (generator, times) = try await makeSampler(for: asset, stride: sampleStride)
         var results: [(time: CMTime, image: CGImage)] = []
         results.reserveCapacity(times.count)
         for requestedTime in times {

@@ -180,6 +180,122 @@ struct VideoSourceSelectionViewModelTests {
         #expect(vm.errorMessage == "No serves detected. Try a different clip.")
         #expect(vm.isProcessing == false)
     }
+
+    // MARK: - Mode selector (Phase P6)
+
+    @Test("default mode is Lite")
+    func defaultModeIsLite() {
+        let vm = makeVM()
+        #expect(vm.selectedMode == .lite)
+    }
+
+    @Test("selected mode persists across VideoSourceSelectionViewModel instances sharing the same UserDefaults suite")
+    func selectedModePersistsAcrossInstancesViaUserDefaults() {
+        let defaults = makeIsolatedDefaults()
+        let vm1 = VideoSourceSelectionViewModel(
+            coordinator: PipelineCoordinator(pipeline: MockPipeline(segments: [])),
+            proPipeline: MockProServeAnalyzing(),
+            permissionChecker: MockPermissionChecker(granted: true),
+            defaults: defaults
+        )
+        vm1.selectedMode = .pro2D
+
+        let vm2 = VideoSourceSelectionViewModel(
+            coordinator: PipelineCoordinator(pipeline: MockPipeline(segments: [])),
+            proPipeline: MockProServeAnalyzing(),
+            permissionChecker: MockPermissionChecker(granted: true),
+            defaults: defaults
+        )
+        #expect(vm2.selectedMode == .pro2D)
+    }
+
+    @Test("Pro 2D mode routes runPipeline to the Pro pipeline, never the Lite coordinator")
+    func proModeRoutesToProPipelineNotLiteCoordinator() async {
+        let liteMock = MockPipeline(segments: [makeFrames()])
+        let proMock = MockProServeAnalyzing(results: [AssessmentServeResult(serveIndex: 0, coaching: CoachingResult(cues: [], summary: nil))])
+        let vm = makeVM(pipeline: liteMock, proAnalyzer: proMock)
+        vm.selectedMode = .pro2D
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url)
+
+        #expect(await proMock.wasCalled == true)
+        #expect(await liteMock.wasCalled == false)
+        #expect(vm.navigateToAssessmentResults == true)
+    }
+
+    @Test("Pro 2D mode: no segments detected sets a Pro-specific error message")
+    func proModeNoSegmentsSetsDistinctErrorMessage() async {
+        let proMock = MockProServeAnalyzing(error: ProServeAnalysisError.noSegmentsDetected)
+        let vm = makeVM(proAnalyzer: proMock)
+        vm.selectedMode = .pro2D
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url)
+
+        #expect(vm.errorMessage == "No serves detected in this clip. Try a different clip.")
+        #expect(vm.isProcessing == false)
+    }
+
+    @Test("Pro 2D mode: success sets assessmentResults and navigates")
+    func proModeSuccessSetsAssessmentResultsAndNavigates() async {
+        let expected = [AssessmentServeResult(serveIndex: 0, coaching: CoachingResult(cues: [], summary: "clean"))]
+        let proMock = MockProServeAnalyzing(results: expected)
+        let vm = makeVM(proAnalyzer: proMock)
+        vm.selectedMode = .pro2D
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url)
+
+        #expect(vm.assessmentResults?.count == 1)
+        #expect(vm.assessmentResults?.first?.coaching.summary == "clean")
+        #expect(vm.navigateToAssessmentResults == true)
+        #expect(vm.errorMessage == nil)
+    }
+
+    // MARK: - Lite path, unchanged (explicit .lite mode)
+
+    @Test("Lite mode: zero segments → errorMessage set, isProcessing cleared")
+    func liteModeZeroServesTriggersError() async {
+        let vm = makeVM(pipeline: MockPipeline(segments: []))
+        vm.selectedMode = .lite
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url)
+
+        #expect(vm.errorMessage == "No serves detected. Try a different clip.")
+        #expect(vm.isProcessing == false)
+    }
+
+    @Test("Lite mode: non-empty segments → no error, isProcessing cleared")
+    func liteModeServesDetectedNoError() async {
+        let vm = makeVM(pipeline: MockPipeline(segments: [makeFrames()]))
+        vm.selectedMode = .lite
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url)
+
+        #expect(vm.errorMessage == nil)
+        #expect(vm.isProcessing == false)
+    }
+
+    @Test("Lite mode: pipeline failure → generic error message, isProcessing cleared")
+    func liteModePipelineFailureSetsError() async {
+        let vm = makeVM(pipeline: MockPipeline(error: MockError.failed))
+        vm.selectedMode = .lite
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url)
+
+        #expect(vm.errorMessage == "Could not analyze video. Try again.")
+        #expect(vm.isProcessing == false)
+    }
 }
 
 // MARK: - Helpers
@@ -187,18 +303,27 @@ struct VideoSourceSelectionViewModelTests {
 @MainActor
 private func makeVM(
     pipeline: any PoseAnalyzing = MockPipeline(segments: []),
-    authStatus: PHAuthorizationStatus = .authorized
+    authStatus: PHAuthorizationStatus = .authorized,
+    proAnalyzer: any ProServeAnalyzing = MockProServeAnalyzing()
 ) -> VideoSourceSelectionViewModel {
     let granted = authStatus != .denied && authStatus != .restricted
     return VideoSourceSelectionViewModel(
         coordinator: PipelineCoordinator(pipeline: pipeline),
-        permissionChecker: MockPermissionChecker(granted: granted)
+        proPipeline: proAnalyzer,
+        permissionChecker: MockPermissionChecker(granted: granted),
+        defaults: makeIsolatedDefaults()
     )
 }
 
 @MainActor
 private func makeVM(authStatus: PHAuthorizationStatus) -> VideoSourceSelectionViewModel {
     makeVM(pipeline: MockPipeline(segments: []), authStatus: authStatus)
+}
+
+/// A fresh, uniquely-named UserDefaults suite per call — avoids cross-test races on the shared
+/// standard domain (same lesson as StubURLProtocol's per-host state; see that file's doc comment).
+private func makeIsolatedDefaults() -> UserDefaults {
+    UserDefaults(suiteName: "com.myservecoach.tests.\(UUID().uuidString)")!
 }
 
 private func makeFrames() -> [PoseFrame] {
@@ -214,12 +339,36 @@ private struct MockPermissionChecker: PermissionChecking {
     func checkPermission() async -> Bool { granted }
 }
 
-private struct MockPipeline: PoseAnalyzing {
+private actor MockPipeline: PoseAnalyzing {
     var segments: [[PoseFrame]] = []
     var error: Error?
+    private(set) var wasCalled = false
+
+    init(segments: [[PoseFrame]] = [], error: Error? = nil) {
+        self.segments = segments
+        self.error = error
+    }
 
     func analyze(videoURL: URL) async throws -> [[PoseFrame]] {
+        wasCalled = true
         if let error { throw error }
         return segments
+    }
+}
+
+private actor MockProServeAnalyzing: ProServeAnalyzing {
+    var results: [AssessmentServeResult] = []
+    var error: Error?
+    private(set) var wasCalled = false
+
+    init(results: [AssessmentServeResult] = [], error: Error? = nil) {
+        self.results = results
+        self.error = error
+    }
+
+    func analyze(videoURL: URL) async throws -> [AssessmentServeResult] {
+        wasCalled = true
+        if let error { throw error }
+        return results
     }
 }

@@ -37,7 +37,7 @@ import numpy as np
 # Allow running from the repo root or from inside backend/.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.engine.phases import detect_phases, segment_serves
+from app.engine.phases import detect_phases, segment_serves, slice_detections_by_segments
 from app.models import Detection, Frame, ServePhase
 from app.services.object_detection import get_object_detection_model
 from app.services.pose_model import get_pose_model
@@ -149,18 +149,6 @@ def generate_segmentation_html(
     report_path = output_dir / "report.html"
     report_path.write_text(html, encoding="utf-8")
     return report_path
-
-
-def slice_detections_by_segments(
-    detections: list[list[Detection]], segments: list[list[Frame]]
-) -> list[list[list[Detection]]]:
-    """Slice a flat per-frame detections list at the same boundaries segment_serves used for frames."""
-    serve_detections: list[list[list[Detection]]] = []
-    cursor = 0
-    for segment in segments:
-        serve_detections.append(detections[cursor : cursor + len(segment)])
-        cursor += len(segment)
-    return serve_detections
 
 
 def run_segmentation_report(

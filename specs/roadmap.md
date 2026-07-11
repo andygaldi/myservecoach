@@ -130,6 +130,17 @@ Ground the `rules.json` thresholds in real 2D-measured joint angles now that rel
 
 For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receive and display the `AnalyzeResponse` cue list on a **new, Pro-mode-gated coaching-results screen** — distinct from the Lite comparison screen, reachable only when Pro 2D mode is selected via the selector built above. Wires `LiveCoachingService.analyze()` (built service-layer-only in P1) into the app for the first time. Add SwiftData fields to persist cues alongside the phase frames already stored. Requires P4 (automatic segmentation) and P5 (calibrated 2D rules).
 
+> **Known gap (TODO, future phase):** `segment_serves` (`backend/app/engine/phases.py`) always returns
+> at least one segment for any non-empty frame list — even a clip with no genuine serve motion
+> falls through to a single whole-clip segment rather than an empty list. This makes the P6 iOS
+> pipeline's `ProServeAnalysisError.noSegmentsDetected` path (and its "No serves detected in this
+> clip" messaging) real and tested, but currently unreachable from the actual backend — a
+> serve-free clip will instead produce one low-quality "Serve 1" section with unreliable cues
+> instead of a clean error. Fixing this means teaching `segment_serves` (or a caller) to recognize
+> a segment with no real motion and drop it, which is a heuristic change out of scope for P6 —
+> revisit alongside P7 (which also depends on `segment_serves` for continuous multi-serve capture
+> and would benefit from the same fix) or as a small standalone heuristic phase.
+
 ### Phase P7 — Goal Library & Set Goal Session Mode (2D)
 
 Continuous recording session with automatic per-serve detection (P4) and per-serve analysis. Define a goal catalog; backend returns `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. Deliver audible pass/fail feedback via `AVSpeechSynthesizer` so the player can stay focused on the court between serves. Mac-hosted; becomes field-portable after the P17 Jetson migration.

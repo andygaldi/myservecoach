@@ -24,6 +24,14 @@ struct VideoSourceSelectionView: View {
                         .padding(.horizontal)
                 }
 
+                Picker("Mode", selection: $viewModel.selectedMode) {
+                    ForEach(SessionMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+
                 VStack(spacing: 16) {
                     sourceButton(
                         title: "Record New",
@@ -67,6 +75,18 @@ struct VideoSourceSelectionView: View {
                     PhaseReviewView(
                         viewModel: phaseVM,
                         onCancel: { viewModel.dismissPhaseReview() }
+                    )
+                }
+            }
+            .navigationDestination(isPresented: $viewModel.navigateToAssessmentResults) {
+                if let results = viewModel.assessmentResults {
+                    AssessmentResultView(
+                        viewModel: AssessmentResultViewModel(
+                            results: results,
+                            inputType: viewModel.pendingInputType,
+                            videoURL: viewModel.pendingVideoURL
+                        ),
+                        onDone: { viewModel.dismissAssessmentResults() }
                     )
                 }
             }

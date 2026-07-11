@@ -19,6 +19,20 @@ struct FrameSamplerServiceTests {
         #expect(times.count == frameCount / PoseConstants.kPoseSampleStride)
     }
 
+    @Test("explicit stride overrides the default and changes the sampled time count")
+    func explicitStrideOverridesDefault() async throws {
+        let frameCount = 30
+        let frameRate: Float = 30
+        let url = try await makeTestVideo(frameCount: frameCount, frameRate: frameRate)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let asset = AVURLAsset(url: url)
+        let (_, times) = try await FrameSamplerService().makeSampler(for: asset, stride: 2)
+
+        #expect(times.count == frameCount / 2)
+        #expect(times.count != frameCount / PoseConstants.kPoseSampleStride)
+    }
+
     // MARK: - Helpers
 
     /// Writes a minimal H264 video with black frames to a temp file.

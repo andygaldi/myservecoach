@@ -32,6 +32,21 @@ class AnalyzeRequest(BaseModel):
     session_id: str | None = None
 
 
+class SegmentRequest(BaseModel):
+    frames: list[Frame] = Field(min_length=1)
+    detections: list[list[Detection]] | None = None
+    session_id: str | None = None
+
+
+class ServeSegment(BaseModel):
+    frames: list[Frame]
+    detections: list[list[Detection]] | None = None
+
+
+class SegmentResponse(BaseModel):
+    segments: list[ServeSegment]
+
+
 class ServePhase(str, Enum):
     start = "start"
     release = "release"

@@ -18,20 +18,40 @@ final class VideoSourceSelectionViewModel {
     var noPoseDetected = false
     var navigateToPhaseReview = false
     var phaseReviewViewModel: PhaseReviewViewModel?
+    var navigateToAssessmentResults = false
+    private(set) var assessmentResults: [AssessmentServeResult]?
+    private(set) var pendingInputType: String = "imported"
+
+    // Not @AppStorage: @Observable classes don't mix cleanly with that property wrapper.
+    // UserDefaults-backed directly instead; persists the last-selected mode across sessions.
+    // `defaults` is injectable (default `.standard`) so tests can use an isolated suite rather
+    // than racing on the shared standard domain.
+    private static let modeDefaultsKey = "com.myservecoach.sessionMode"
+    var selectedMode: SessionMode {
+        get { SessionMode(rawValue: defaults.string(forKey: Self.modeDefaultsKey) ?? "") ?? .lite }
+        set { defaults.set(newValue.rawValue, forKey: Self.modeDefaultsKey) }
+    }
 
     private let exporter = LibraryVideoExporter()
     private let coordinator: PipelineCoordinator
-    private var pendingVideoURL: URL?
+    private let proPipeline: any ProServeAnalyzing
+    private(set) var pendingVideoURL: URL?
 
     @ObservationIgnored
     private let permissionChecker: any PermissionChecking
+    @ObservationIgnored
+    private let defaults: UserDefaults
 
     init(
         coordinator: PipelineCoordinator = PipelineCoordinator(),
-        permissionChecker: any PermissionChecking = PhotoLibraryPermissionChecker()
+        proPipeline: any ProServeAnalyzing = ProServeAnalysisPipeline(),
+        permissionChecker: any PermissionChecking = PhotoLibraryPermissionChecker(),
+        defaults: UserDefaults = .standard
     ) {
         self.coordinator = coordinator
+        self.proPipeline = proPipeline
         self.permissionChecker = permissionChecker
+        self.defaults = defaults
     }
 
     func handleLibraryButtonTap() async {
@@ -67,6 +87,18 @@ final class VideoSourceSelectionViewModel {
     // Internal so tests can exercise the pipeline path directly.
     @MainActor
     func runPipeline(on url: URL, inputType: String = "imported") async {
+        switch selectedMode {
+        case .lite:
+            await runLitePipeline(on: url, inputType: inputType)
+        case .pro2D:
+            await runProPipeline(on: url, inputType: inputType)
+        }
+    }
+
+    // Renamed verbatim from the original single-mode runPipeline(on:inputType:) body — no
+    // logic changes, so the Lite path stays byte-for-byte identical once selected.
+    @MainActor
+    private func runLitePipeline(on url: URL, inputType: String = "imported") async {
         errorMessage = nil
         noPoseDetected = false
         // Release any temp file left over from a previous incomplete session.
@@ -95,9 +127,42 @@ final class VideoSourceSelectionViewModel {
         isProcessing = false
     }
 
+    @MainActor
+    private func runProPipeline(on url: URL, inputType: String = "imported") async {
+        errorMessage = nil
+        if let old = pendingVideoURL {
+            try? FileManager.default.removeItem(at: old)
+            pendingVideoURL = nil
+        }
+        do {
+            let results = try await proPipeline.analyze(videoURL: url)
+            pendingVideoURL = url
+            pendingInputType = inputType
+            assessmentResults = results
+            navigateToAssessmentResults = true
+        } catch ProServeAnalysisError.noSegmentsDetected {
+            errorMessage = "No serves detected in this clip. Try a different clip."
+            try? FileManager.default.removeItem(at: url)
+        } catch {
+            errorMessage = "Could not analyze video. Try again."
+            try? FileManager.default.removeItem(at: url)
+            print("[VideoSourceSelection] Pro pipeline error: \(error)")
+        }
+        isProcessing = false
+    }
+
     func dismissPhaseReview() {
         navigateToPhaseReview = false
         phaseReviewViewModel = nil
+        if let url = pendingVideoURL {
+            try? FileManager.default.removeItem(at: url)
+            pendingVideoURL = nil
+        }
+    }
+
+    func dismissAssessmentResults() {
+        navigateToAssessmentResults = false
+        assessmentResults = nil
         if let url = pendingVideoURL {
             try? FileManager.default.removeItem(at: url)
             pendingVideoURL = nil
