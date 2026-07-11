@@ -31,7 +31,11 @@ struct SessionHistoryView: View {
             }
             .navigationTitle("History")
             .navigationDestination(for: ServeSession.self) { session in
-                HistoryComparisonView(session: session)
+                if session.mode == "lite" {
+                    HistoryComparisonView(session: session)
+                } else {
+                    AssessmentHistoryDetailView(session: session)
+                }
             }
         }
     }

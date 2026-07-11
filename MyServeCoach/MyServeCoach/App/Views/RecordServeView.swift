@@ -1,10 +1,17 @@
 import SwiftUI
 
 struct RecordServeView: View {
-    var onClipSelected: (URL) -> Void = { _ in }
+    var onClipSelected: (URL) -> Void
+    var sessionMode: SessionMode
 
     @Environment(\.openURL) private var openURL
-    @State private var cameraViewModel = CameraViewModel()
+    @State private var cameraViewModel: CameraViewModel
+
+    init(onClipSelected: @escaping (URL) -> Void = { _ in }, sessionMode: SessionMode = .lite) {
+        self.onClipSelected = onClipSelected
+        self.sessionMode = sessionMode
+        _cameraViewModel = State(initialValue: CameraViewModel(sessionMode: sessionMode))
+    }
 
     var body: some View {
         #if targetEnvironment(simulator)

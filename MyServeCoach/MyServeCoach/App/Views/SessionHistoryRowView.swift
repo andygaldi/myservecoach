@@ -21,10 +21,31 @@ struct SessionHistoryRowView: View {
         session.inputType == "recorded" ? "Recorded" : "Imported"
     }
 
+    // Internal (not private) so tests can exercise this logic directly without ViewInspector.
+    var isProSession: Bool {
+        session.mode != "lite"
+    }
+
+    var proSubtitle: String {
+        let cueCount = session.results.flatMap(\.cues).count
+        return "\(session.results.count) serve\(session.results.count == 1 ? "" : "s") · \(cueCount) cue\(cueCount == 1 ? "" : "s")"
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Group {
-                if let image = thumbnail {
+                if isProSession {
+                    Rectangle()
+                        .fill(Color(.systemGray5))
+                        .overlay {
+                            Text("Pro 2D")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.accentColor, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                } else if let image = thumbnail {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
@@ -39,7 +60,7 @@ struct SessionHistoryRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(Self.dateFormatter.string(from: session.date))
                     .font(.body)
-                Text(inputTypeBadge)
+                Text(isProSession ? proSubtitle : inputTypeBadge)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

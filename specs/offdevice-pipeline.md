@@ -190,6 +190,46 @@ Response (existing `AnalyzeResponse` in `backend/app/models.py` — no schema ch
 
 iOS `CoachingResult` must be updated to match `AnalyzeResponse` (list of structured `Cue` objects, not `[String]`).
 
+> **Superseded by Phase P6's realized contract, below.** `POST /v1/pose` was built (P1) and stays
+> live and tested, but real-device testing in P6 found the on-device
+> `AVAssetImageGenerator`+`UIImage.jpegData` frame extraction feeding it wasn't pixel-equivalent
+> enough to the OpenCV-based extraction `segment_serves` was validated against — the app's actual
+> live capture path calls `POST /v1/segment/video` instead (see below). `/v1/pose` and `/v1/detect`
+> remain dormant-but-tested primitives, reachable but not called by the app.
+
+### Phase P6 realized contract — `POST /v1/segment/video`
+
+The app's actual Pro 2D/3D capture path, as built (not the P1 plan sketched above): the iPhone
+uploads the whole raw video file — no on-device frame sampling, pose estimation, or JPEG encoding.
+
+```
+POST /v1/segment/video?stride=2
+Content-Type: video/quicktime
+
+<raw video file bytes, streamed via URLSession.upload(for:fromFile:)>
+```
+
+Backend extracts frames (OpenCV, `app/services/video_sampler.py`, promoted from a dev tool),
+runs the pose model and object detector per frame, and segments the result into per-serve chunks
+using the same `segment_serves` already validated by the calibration tooling:
+
+```json
+{
+  "segments": [
+    {
+      "frames": [ { "timestamp": 1.234, "keypoints": { "right_wrist": { "x": 0.51, "y": 0.32, "confidence": 0.94 } } } ],
+      "detections": [ [ { "label": "ball", "confidence": 0.9, "bbox": { "x_min": 0.1, "y_min": 0.2, "x_max": 0.3, "y_max": 0.4 } } ] ]
+    }
+  ]
+}
+```
+
+The app then POSTs each segment individually to the existing `POST /v1/analyze` (unchanged),
+looping once per detected serve — the "Assessment loops one call per segmented serve" contract
+from Phase 3's backend scaffold. A JSON-body sibling, `POST /v1/segment` (frames/detections
+already extracted client-side), also exists as a dormant-but-tested primitive for any future
+caller that already holds keypoints.
+
 ### Joint name mapping — Vision → backend
 
 `VNHumanBodyPoseObservation.JointName.rawValue` (the key stored in iOS `PoseFrame.joints`) maps to the backend's keypoint names as follows. This translation must be implemented before `POST /v1/analyze` can be wired up (P1). The translation belongs in a new `App/Services/Pose/VisionJointMapper.swift` utility called before any network POST. When the backend's own pose model generates keypoints (P1+), those are already in the backend schema — no translation needed server-side.

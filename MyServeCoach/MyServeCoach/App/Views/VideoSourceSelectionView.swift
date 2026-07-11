@@ -24,6 +24,14 @@ struct VideoSourceSelectionView: View {
                         .padding(.horizontal)
                 }
 
+                Picker("Mode", selection: $viewModel.selectedMode) {
+                    ForEach(SessionMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+
                 VStack(spacing: 16) {
                     sourceButton(
                         title: "Record New",
@@ -56,17 +64,32 @@ struct VideoSourceSelectionView: View {
             .navigationTitle("New Serve")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(isPresented: $viewModel.navigateToRecord) {
-                RecordServeView(onClipSelected: { url in
-                    viewModel.navigateToRecord = false
-                    viewModel.isProcessing = true
-                    Task { await viewModel.runPipeline(on: url, inputType: "recorded") }
-                })
+                RecordServeView(
+                    onClipSelected: { url in
+                        viewModel.navigateToRecord = false
+                        viewModel.isProcessing = true
+                        Task { await viewModel.runPipeline(on: url, inputType: "recorded") }
+                    },
+                    sessionMode: viewModel.selectedMode
+                )
             }
             .navigationDestination(isPresented: $viewModel.navigateToPhaseReview) {
                 if let phaseVM = viewModel.phaseReviewViewModel {
                     PhaseReviewView(
                         viewModel: phaseVM,
                         onCancel: { viewModel.dismissPhaseReview() }
+                    )
+                }
+            }
+            .navigationDestination(isPresented: $viewModel.navigateToAssessmentResults) {
+                if let results = viewModel.assessmentResults {
+                    AssessmentResultView(
+                        viewModel: AssessmentResultViewModel(
+                            results: results,
+                            inputType: viewModel.pendingInputType,
+                            videoURL: viewModel.pendingVideoURL
+                        ),
+                        onDone: { viewModel.dismissAssessmentResults() }
                     )
                 }
             }
