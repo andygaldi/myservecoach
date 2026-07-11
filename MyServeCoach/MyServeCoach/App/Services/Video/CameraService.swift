@@ -4,7 +4,7 @@ import AVFoundation
 
 protocol CameraServiceProtocol: AnyObject {
     var session: AVCaptureSession { get }
-    func configure(position: AVCaptureDevice.Position) throws
+    func configure(position: AVCaptureDevice.Position, sessionMode: SessionMode) throws
     func startSession()
     func stopSession()
     func toggleCamera(currentPosition: AVCaptureDevice.Position) throws -> AVCaptureDevice.Position
@@ -23,11 +23,11 @@ final class CameraService: NSObject, CameraServiceProtocol {
     private var recordingCompletion: ((Result<URL, Error>) -> Void)?
     private var isRecording = false
 
-    func configure(position: AVCaptureDevice.Position = .back) throws {
+    func configure(position: AVCaptureDevice.Position = .back, sessionMode: SessionMode) throws {
         var caught: Error?
         sessionQueue.sync {
             do {
-                try _configure(position: position)
+                try _configure(position: position, sessionMode: sessionMode)
                 _updateMirroring(for: position)
             } catch {
                 caught = error
@@ -81,16 +81,27 @@ final class CameraService: NSObject, CameraServiceProtocol {
 
     // MARK: - Private (session-queue only)
 
-    private func _configure(position: AVCaptureDevice.Position) throws {
+    private func _configure(position: AVCaptureDevice.Position, sessionMode: SessionMode) throws {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
-        session.sessionPreset = .high
+        // Lite keeps the existing device-relative `.high` preset unchanged — CameraService is
+        // shared by both modes, and Lite's on-device segmentation was calibrated against
+        // whatever `.high` already produces on real devices. Pro 2D locks to a known-good,
+        // fixed resolution/fps instead of leaving it device-dependent: real-device testing found
+        // the backend's segmentation heuristic reliably breaks on higher resolutions/frame rates
+        // (e.g. 1080x1920@60fps, 2160x3840@60fps) that `.high` can produce depending on device,
+        // while 720x1280@30fps (matching the calibration footage segment_serves was tuned
+        // against) does not have that failure mode. See phases/2026-07-10-p6-.../requirements.md.
+        session.sessionPreset = sessionMode == .pro2D ? .hd1280x720 : .high
 
         let previous = currentInput
         currentInput = nil
         if let previous { session.removeInput(previous) }
 
         let device = try _captureDevice(for: position)
+        if sessionMode == .pro2D {
+            try _lockFrameRate(on: device, to: 30)
+        }
         let input = try AVCaptureDeviceInput(device: device)
 
         guard session.canAddInput(input) else {
@@ -103,6 +114,14 @@ final class CameraService: NSObject, CameraServiceProtocol {
         if !session.outputs.contains(movieOutput), session.canAddOutput(movieOutput) {
             session.addOutput(movieOutput)
         }
+    }
+
+    private func _lockFrameRate(on device: AVCaptureDevice, to fps: Int32) throws {
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+        let duration = CMTime(value: 1, timescale: fps)
+        device.activeVideoMinFrameDuration = duration
+        device.activeVideoMaxFrameDuration = duration
     }
 
     private func _toggleCamera(currentPosition: AVCaptureDevice.Position) throws -> AVCaptureDevice.Position {

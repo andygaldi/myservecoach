@@ -138,7 +138,7 @@ private final class MockCameraService: CameraServiceProtocol {
     let session = AVCaptureSession()
     private var recordingCompletion: ((Result<URL, Error>) -> Void)?
 
-    func configure(position: AVCaptureDevice.Position) throws {}
+    func configure(position: AVCaptureDevice.Position, sessionMode: SessionMode) throws {}
     func startSession() {}
     func stopSession() {}
 

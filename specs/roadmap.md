@@ -124,7 +124,7 @@ six-frame model's shape, the `ServePhase` enum, or anything outside the Pro 2D/3
 
 Ground the `rules.json` thresholds in real 2D-measured joint angles now that reliable phase frames are available from P4. Run `backend/tools/analyze_angles.py` against the validated P4 phase frames and compare measured 2D joint angles against the current thresholds; update, add, remove, or re-weight rules accordingly. Note the 2D-projection caveat — foreshortening from a single camera systematically underestimates angles like shoulder external rotation; these thresholds serve Pro 2D mode and are re-derived on 3D angles for Pro 3D mode in Phase P10.
 
-### Phase P6 — Automated Coaching Cues / Assessment (2D)
+### Phase P6 — Automated Coaching Cues / Assessment (2D) ✅
 
 **Builds the mode-selector, first appearance (2-way).** This is the first phase with any Pro-facing screen, so it also owns building the session-setup mode-selection step that gates entry to it: a **Lite / Pro 2D** choice shown at session start (natural insertion point: at or just before `VideoSourceSelectionView`, today's session entry). Selecting **Lite** routes into the existing, byte-for-byte-unchanged Lite flow (`VideoSourceSelectionView` → pipeline → `PhaseReviewView` → comparison) — the selector must not modify `PhaseReviewView`, the Lite pipeline/segmentation services, or the internals of `VideoSourceSelectionView`'s Lite path; if a wrapper/parent view is introduced at session entry, Lite's downstream views are navigated to unchanged. Selecting **Pro 2D** routes into the new Pro pipeline described below. (Pro 3D is not an option yet — added in P8.) The exact UI form and default/persistence behavior (segmented control vs. first-run screen, remembered-per-user vs. per-session) are decided during this phase's `/spec`.
 
@@ -140,6 +140,28 @@ For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receiv
 > a segment with no real motion and drop it, which is a heuristic change out of scope for P6 —
 > revisit alongside P7 (which also depends on `segment_serves` for continuous multi-serve capture
 > and would benefit from the same fix) or as a small standalone heuristic phase.
+
+> **Known gap (TODO, future phase):** P6's original iOS-side per-frame JPEG-upload architecture
+> (sample frames via `AVAssetImageGenerator`, encode via `UIImage.jpegData`, upload individually to
+> `/v1/pose`/`/v1/detect`) was replaced mid-phase with server-side video-file upload
+> (`POST /v1/segment/video`) after real-device testing found the on-device extraction/encoding
+> pipeline wasn't pixel-equivalent enough to the OpenCV-based extraction `segment_serves` was tuned
+> against — a real 3-serve clip was silently under-segmented to 1 detected serve. The pivot also
+> locks Pro 2D live recording to 720×1280@30fps (`CameraService.swift`, mode-gated — Lite's `.high`
+> preset is unchanged), matching the resolution/frame rate `segment_serves` was validated against;
+> testing across 5 real clips found all three 60fps/4K clips under-segmented identically while
+> 30fps clips did not have that failure mode. Two residual gaps remain, confirmed but not fixed
+> during this pass (fixed threshold, percentile-adaptive threshold, peak-detection, and
+> `MIN_REST_SECONDS` tuning were all tried and rejected — see
+> `phases/2026-07-10-p6-automated-coaching-cues-assessment-2d/requirements.md` for the full
+> investigation): (1) even at the locked 720×1280@30fps, a player with an elaborate pre-serve
+> routine (multiple ball bounces, grip adjustments) can still false-split a single serve into two
+> — confirmed via a real clip that over-segmented 2 genuine serves into 3; fixing this needs
+> proper P4b-style calibration with a larger hand-labeled dataset covering varied player routines,
+> not a quick constant tweak. (2) The 720×1280@30fps lock only applies to *live-recorded* Pro 2D
+> clips — Photos-library imports are copied as-is (`LibraryVideoExporter.copyToTemp`, not
+> re-encoded) and can still arrive at other resolutions/frame rates, carrying the same
+> under-segmentation risk the lock was meant to close.
 
 ### Phase P7 — Goal Library & Set Goal Session Mode (2D)
 

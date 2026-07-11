@@ -12,303 +12,128 @@
 > are consumed as raw `String`s throughout iOS — they are unrelated to Lite's 3-case `ServePhase`
 > enum in `App/Models/ServePhase.swift`, which is not touched.
 
-## Group 1 — Backend: `POST /v1/segment` (surface: `backend`)
+## Groups 1–4 — REVISED mid-phase (see requirements.md "Mid-phase architecture revision")
 
-1. In `backend/app/engine/phases.py`, add (near `segment_serves`, after its definition):
+The groups below (originally: JSON `/v1/segment` + multipart per-frame upload services +
+frame-sampling pipeline orchestration) were **superseded** after real-device testing found the
+on-device frame extraction/JPEG-encoding approach wasn't reliable enough to match
+`segment_serves`'s tuning (full investigation in requirements.md Context). The original,
+fully-working implementation of Groups 1–4 as originally written was preserved via a checkpoint
+commit (`checkpoint: per-frame upload pipeline before video-upload pivot`) before being replaced.
+What actually shipped:
+
+## Group 1 — Backend: `POST /v1/segment` + `POST /v1/segment/video` (surface: `backend`)
+
+1. `slice_detections_by_segments` promoted into `backend/app/engine/phases.py`;
+   `backend/tools/segmentation_report.py` imports it instead of defining its own copy. (Unchanged
+   from the original plan.)
+2. `backend/app/models.py` gains `SegmentRequest`/`ServeSegment`/`SegmentResponse`. (Unchanged.)
+3. `backend/app/routers/segment.py` keeps the original JSON `POST /v1/segment` (frames/detections
+   already extracted client-side) exactly as originally planned — kept as a dormant-but-tested
+   primitive, not this phase's iOS caller.
+4. **New**: `sample_video_frames` promoted from `backend/tools/pose_benchmark.py` (dev-tool-only)
+   into `backend/app/services/video_sampler.py` (verbatim body — reads a video file via
+   `cv2.VideoCapture`, returns `list[tuple[float, np.ndarray]]` of `(timestamp, BGR frame)` at a
+   given stride). `pose_benchmark.py` re-imports and re-exports the name so
+   `segmentation_report.py` and `test_pose_benchmark.py` need no further changes.
+5. **New**: `POST /v1/segment/video` added to `backend/app/routers/segment.py`:
    ```python
-   def slice_detections_by_segments(
-       detections: list[list[Detection]], segments: list[list[Frame]]
-   ) -> list[list[list[Detection]]]:
-       """Slice a flat per-frame detections list at the same boundaries segment_serves used for frames."""
-       serve_detections: list[list[list[Detection]]] = []
-       cursor = 0
-       for segment in segments:
-           serve_detections.append(detections[cursor : cursor + len(segment)])
-           cursor += len(segment)
-       return serve_detections
+   @router.post("/segment/video", response_model=SegmentResponse)
+   async def segment_video(
+       request: Request,
+       stride: int = DEFAULT_STRIDE,               # 2
+       session_id: str | None = None,
+       pose_model: RTMPoseModel = Depends(get_pose_model),
+       detection_model: ObjectDetectionModel = Depends(get_object_detection_model),
+   ) -> SegmentResponse:
+       with tempfile.NamedTemporaryFile(suffix=".mov", delete=False) as tmp:
+           tmp_path = Path(tmp.name)
+           async for chunk in request.stream():
+               tmp.write(chunk)
+       try:
+           try:
+               sampled = sample_video_frames(tmp_path, stride)
+           except ValueError:
+               raise HTTPException(400, "could not open video")
+           if not sampled:
+               raise HTTPException(400, "video contains no frames")
+           frames = [Frame(timestamp=ts, keypoints=pose_model.infer(img)) for ts, img in sampled]
+           detections = [detection_model.infer(img) for _, img in sampled]
+           serve_frames = segment_serves(frames)
+           serve_detections = slice_detections_by_segments(detections, serve_frames)
+           segments = [ServeSegment(frames=f, detections=d) for f, d in zip(serve_frames, serve_detections)]
+           return SegmentResponse(segments=segments)
+       finally:
+           tmp_path.unlink(missing_ok=True)
    ```
-   (Moved verbatim from `backend/tools/segmentation_report.py`, which currently defines it as a
-   module-level function — same docstring, same body.)
-2. In `backend/tools/segmentation_report.py`: delete the local `slice_detections_by_segments`
-   definition; add it to the existing `from app.engine.phases import detect_phases, segment_serves`
-   import line.
-3. In `backend/app/models.py`, add (after `AnalyzeRequest`):
-   ```python
-   class SegmentRequest(BaseModel):
-       frames: list[Frame] = Field(min_length=1)
-       detections: list[list[Detection]] | None = None
-       session_id: str | None = None
+   Raw-body streaming (`request.stream()`, no multipart envelope) — the client is uploading one
+   file, not many. Same `SegmentResponse`/`ServeSegment` response shape as the JSON endpoint, so
+   downstream `/v1/analyze` consumption is unaffected.
+6. `backend/app/main.py` registers the `segment` router (unchanged registration — both routes live
+   under it).
+7. `backend/tests/test_segment_endpoint.py` (JSON endpoint, unchanged from original plan) +
+   **new** `backend/tests/test_segment_video_endpoint.py`: synthetic clip via `cv2.VideoWriter`
+   (mirrors `test_pose_benchmark.py`'s `_make_video` fixture), stub pose/detection models via
+   `app.dependency_overrides` (mirrors `test_pose_endpoint.py`/`test_detect_endpoint.py`). Cases:
+   valid video → `SegmentResponse` with frame count matching stride; `stride` query param
+   respected; per-segment `detections` length equals `frames` length; invalid bytes / empty body →
+   400.
+8. Run `pytest backend/` (full suite) — confirm zero regressions. Also manually verified against
+   real footage: `POST /v1/segment/video` against `ag_three_serves.MOV` returns 3 segments sized
+   `[280, 161, 152]`, exactly matching the direct-Python `segment_serves` result.
 
+## Group 2 — iOS: Detection Types, `CoachingService` Extension, Shared Request Executor (surface: `ios`)
 
-   class ServeSegment(BaseModel):
-       frames: list[Frame]
-       detections: list[list[Detection]] | None = None
+9. `App/Models/BackendDetection.swift` — `BackendBoundingBox`/`BackendDetection`, both also
+   `Equatable` (needed for pipeline-orchestration test assertions). Unchanged from original plan.
+10. `App/Services/Coaching/CoachingService.swift` — `CoachingServiceProtocol`/`LiveCoachingService`
+    gain `detections: [[BackendDetection]]?`, plus an injectable `session: URLSession = .shared`
+    init parameter. Unchanged from original plan **except**: `nil` optional fields
+    (`detections`/`session_id`) are **omitted** from the encoded JSON body, not encoded as
+    explicit `null` — Swift's compiler-synthesized `Encodable` for `Optional` properties calls
+    `encodeIfPresent`, not `encode`. (The original plan assumed the opposite; corrected via a
+    failing test during implementation. Functionally equivalent either way — Pydantic's
+    `Optional[...] = None` fields treat a missing key and an explicit `null` identically.)
+11. **New, replaces the planned `MultipartFormEncoder`**: `App/Services/Networking/BackendRequestExecutor.swift`
+    — a shared `sendAndDecode<T: Decodable>(_:session:)` (JSON/status-check/decode, used by
+    `LiveCoachingService` and the JSON-segment client) and `sendUploadAndDecode<T: Decodable>(_:fromFile:session:)`
+    (same contract, but via `URLSession.upload(for:fromFile:)` — streams a file from disk without
+    buffering it into memory, used by the video-upload client). Both set a 180s request timeout:
+    `/v1/pose`/`/v1/detect`/`/v1/segment/video` run real model inference sequentially over
+    potentially hundreds of frames in one request/response cycle, plus a one-time backend
+    cold-start model-load cost — comfortably exceeds `URLSession`'s 60s default even on success (a
+    real device smoke test observed exactly this: a 200 OK arrived after the client had already
+    timed out at 60s).
+12. `MyServeCoachTests/CoachingServiceRequestEncodingTests.swift` — request-encoding tests via a
+    new `MyServeCoachTests/Support/StubURLProtocol.swift` helper (see Group 3 — built here since
+    it's needed by both). Locks in the omitted-vs-null behavior from step 10.
+13. Run `scripts/verify.sh ios` — confirm green.
 
+## Group 3 — iOS: Video Segmentation Service (surface: `ios`)
 
-   class SegmentResponse(BaseModel):
-       segments: list[ServeSegment]
-   ```
-4. Create `backend/app/routers/segment.py`:
-   ```python
-   from fastapi import APIRouter
-   from app.models import SegmentRequest, SegmentResponse, ServeSegment
-   from app.engine.phases import segment_serves, slice_detections_by_segments
-
-   router = APIRouter()
-
-
-   @router.post("/segment", response_model=SegmentResponse)
-   async def segment(request: SegmentRequest) -> SegmentResponse:
-       serve_frames = segment_serves(request.frames)
-       if request.detections is not None:
-           serve_detections = slice_detections_by_segments(request.detections, serve_frames)
-       else:
-           serve_detections = [None] * len(serve_frames)
-       segments = [
-           ServeSegment(frames=frames, detections=dets)
-           for frames, dets in zip(serve_frames, serve_detections)
-       ]
-       return SegmentResponse(segments=segments)
-   ```
-5. In `backend/app/main.py`, add `segment` to the router import and registration:
-   ```python
-   from app.routers import analyze, detect, pose, reference_frames, segment
-   ...
-   app.include_router(segment.router, prefix="/v1")
-   ```
-6. Create `backend/tests/test_segment_endpoint.py`, mirroring `tests/test_analyze.py`'s style
-   (direct FastAPI `TestClient`/`AsyncClient` JSON POST, not multipart):
-   - `test_single_continuous_serve_returns_one_segment`: frames with no low-velocity gap → one
-     segment containing all frames, `detections` on the response segment `None` when the request
-     omitted `detections`.
-   - `test_two_serve_sequence_returns_two_segments_with_sliced_detections`: reuse
-     `test_segment_serves.py`'s two-serve synthetic frame builder (`_build_two_serve_sequence` or
-     equivalent fixture) with a parallel synthetic `detections` list; assert 2 segments, and that
-     each segment's `detections` length matches its `frames` length and slices at the same
-     boundary `segment_serves` itself produces (assert directly against calling
-     `segment_serves`/`slice_detections_by_segments` in the test for the expected split, not a
-     hardcoded index).
-   - `test_empty_frames_returns_422`: `frames: []` violates `Field(min_length=1)` — assert 422,
-     matching `AnalyzeRequest`'s existing empty-frames behavior.
-   - `test_detections_omitted_yields_none_per_segment`: no `detections` key in the request body →
-     every response segment's `detections` is `null`.
-7. Run `pytest backend/tests/test_segment_endpoint.py backend/tests/test_segmentation_report.py -v`
-   — confirm new tests pass and `segmentation_report.py`'s existing tests are unaffected by the
-   helper's relocation.
-8. Run `pytest backend/` (full suite) — confirm zero regressions.
-
-## Group 2 — iOS: Detection Types, `CoachingService` Extension, Multipart Encoder (surface: `ios`)
-
-9. Create `App/Models/BackendDetection.swift`:
-   ```swift
-   import Foundation
-
-   struct BackendBoundingBox: Codable, Sendable {
-       let xMin: Float
-       let yMin: Float
-       let xMax: Float
-       let yMax: Float
-
-       enum CodingKeys: String, CodingKey {
-           case xMin = "x_min", yMin = "y_min", xMax = "x_max", yMax = "y_max"
-       }
-   }
-
-   struct BackendDetection: Codable, Sendable {
-       let label: String
-       let confidence: Float
-       let bbox: BackendBoundingBox
-   }
-   ```
-10. In `App/Services/Coaching/CoachingService.swift`:
-    - Update the protocol:
-      ```swift
-      protocol CoachingServiceProtocol {
-          func analyze(
-              frames: [BackendFrame],
-              detections: [[BackendDetection]]?,
-              sessionId: String?
-          ) async throws -> CoachingResult
-      }
-      ```
-    - Update `LiveCoachingService.RequestBody` and `analyze`:
-      ```swift
-      private struct RequestBody: Encodable {
-          let frames: [BackendFrame]
-          let detections: [[BackendDetection]]?
-          let sessionId: String?
-
-          enum CodingKeys: String, CodingKey {
-              case frames, detections
-              case sessionId = "session_id"
-          }
-      }
-
-      func analyze(
-          frames: [BackendFrame],
-          detections: [[BackendDetection]]? = nil,
-          sessionId: String? = nil
-      ) async throws -> CoachingResult {
-          var request = URLRequest(url: baseURL.appendingPathComponent("v1/analyze"))
-          request.httpMethod = "POST"
-          request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-          request.httpBody = try JSONEncoder().encode(
-              RequestBody(frames: frames, detections: detections, sessionId: sessionId)
-          )
-          let (data, response) = try await URLSession.shared.data(for: request)
-          guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-              let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-              throw CoachingServiceError.networkError("HTTP \(status)")
-          }
-          return try JSONDecoder().decode(CoachingResult.self, from: data)
-      }
-      ```
-      (Default-`nil` params keep this source-compatible with any future single-serve-only caller.)
-11. Create `App/Services/Networking/MultipartFormEncoder.swift`:
+14. `MyServeCoachTests/Support/StubURLProtocol.swift` — intercepts requests on a
+    `URLSessionConfiguration.ephemeral`-backed session, returns a canned response/data/error.
+    **Keyed by request host, not a single global "last request"** — Swift Testing runs test
+    functions concurrently by default, and an earlier global-state design caused genuine,
+    reproducible cross-suite flakiness (one test's `reset()` racing another's in-flight assertion).
+    `StubURLProtocol.uniqueBaseURL()` gives each test a private host; state for different tests
+    never collides regardless of execution order. Same fix pattern reused in
+    `VideoSourceSelectionViewModelTests`'s `makeIsolatedDefaults()` (a fresh `UserDefaults` suite
+    per test, same race class with `UserDefaults.standard`).
+15. `App/Services/Pose/VideoSegmentationService.swift` (**replaces** the originally-planned
+    `PoseUploadService.swift` + `ObjectDetectionUploadService.swift` + `ServeSegmentationUploadService.swift`):
     ```swift
-    import Foundation
-
-    /// Builds `multipart/form-data` bodies matching FastAPI's `File(...)`/`Form(...)` expectations:
-    /// repeated `frames` file parts (one per JPEG) and repeated `timestamps` text parts (one per
-    /// value, not a JSON array) — see backend/tests/test_pose_endpoint.py for the wire contract.
-    struct MultipartFormEncoder {
-        let boundary = "Boundary-\(UUID().uuidString)"
-
-        var contentType: String { "multipart/form-data; boundary=\(boundary)" }
-
-        func encodeFrames(_ frames: [(timestamp: Double, jpegData: Data)], sessionId: String?) -> Data {
-            var body = Data()
-            for (index, frame) in frames.enumerated() {
-                appendFilePart(
-                    to: &body, name: "frames", filename: "frame\(index).jpg",
-                    mimeType: "image/jpeg", fileData: frame.jpegData
-                )
-            }
-            for frame in frames {
-                appendTextPart(to: &body, name: "timestamps", value: String(frame.timestamp))
-            }
-            if let sessionId {
-                appendTextPart(to: &body, name: "session_id", value: sessionId)
-            }
-            body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-            return body
-        }
-
-        private func appendFilePart(
-            to body: inout Data, name: String, filename: String, mimeType: String, fileData: Data
-        ) {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append(
-                "Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n"
-                    .data(using: .utf8)!
-            )
-            body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-            body.append(fileData)
-            body.append("\r\n".data(using: .utf8)!)
-        }
-
-        private func appendTextPart(to body: inout Data, name: String, value: String) {
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
-            body.append("\(value)\r\n".data(using: .utf8)!)
-        }
-    }
-    ```
-12. Create `MyServeCoachTests/MultipartFormEncoderTests.swift`: build a 2-frame body, split the
-    raw `Data` on `--\(boundary)` (decode to a UTF-8-lossy string for text parts; for the file
-    parts, assert the `Content-Disposition`/`Content-Type` header lines and that the raw JPEG
-    bytes appear unmodified in the part body), and assert:
-    - Exactly 2 `frames` file parts, each with `filename="frame0.jpg"`/`"frame1.jpg"` and
-      `Content-Type: image/jpeg`.
-    - Exactly 2 `timestamps` text parts with the expected string values (not one JSON-array part).
-    - `session_id` part present only when a non-nil `sessionId` is passed, absent otherwise.
-    - Body ends with the closing `--boundary--` delimiter.
-13. Create `MyServeCoachTests/CoachingServiceRequestEncodingTests.swift`: encode a `RequestBody`-
-    shaped value (or capture the actual `URLRequest.httpBody` via a `URLProtocol` stub, matching
-    whatever's simplest given `LiveCoachingService` has no injectable session — prefer adding a
-    `URLSession` init parameter to `LiveCoachingService` now, defaulting to `.shared`, purely to
-    make this and Group 3/4's live-service tests possible without hitting the network) and assert
-    the encoded JSON's top-level keys are exactly `frames`, `detections`, `session_id`, and that a
-    `nil` `detections` encodes as JSON `null` (not an omitted key — `Encodable`'s default optional
-    behavior already does this; just lock it in with a test).
-14. Run `xcodebuild test` via `scripts/verify.sh ios` scoped to the new test files (or the full
-    suite) — confirm green.
-
-## Group 3 — iOS: Pro Upload Services (surface: `ios`)
-
-15. Add a `URLSession` init parameter (default `.shared`) to `LiveCoachingService` (per step 13)
-    if not already done there.
-16. Create `App/Services/Pose/PoseUploadService.swift`:
-    ```swift
-    import Foundation
-
-    protocol PoseUploadServiceProtocol {
-        func infer(frames: [(timestamp: Double, jpegData: Data)], sessionId: String?) async throws -> [BackendFrame]
-    }
-
-    final class LivePoseUploadService: PoseUploadServiceProtocol {
-        private let baseURL: URL
-        private let session: URLSession
-        private let encoder = MultipartFormEncoder()
-
-        init(baseURL: URL = BackendConfig.baseURL, session: URLSession = .shared) {
-            self.baseURL = baseURL
-            self.session = session
-        }
-
-        func infer(frames: [(timestamp: Double, jpegData: Data)], sessionId: String?) async throws -> [BackendFrame] {
-            var request = URLRequest(url: baseURL.appendingPathComponent("v1/pose"))
-            request.httpMethod = "POST"
-            request.setValue(encoder.contentType, forHTTPHeaderField: "Content-Type")
-            request.httpBody = encoder.encodeFrames(frames, sessionId: sessionId)
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                throw ProUploadError.networkError("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-            }
-            struct PoseResponse: Decodable { let frames: [BackendFrame] }
-            return try JSONDecoder().decode(PoseResponse.self, from: data).frames
-        }
-    }
-
-    enum ProUploadError: Error {
-        case networkError(String)
-    }
-    ```
-17. Create `App/Services/Pose/ObjectDetectionUploadService.swift`, same shape POSTing to
-    `v1/detect`, decoding:
-    ```swift
-    struct BackendDetectionFrame: Decodable, Sendable {
-        let timestamp: Double
-        let detections: [BackendDetection]
-    }
-    protocol ObjectDetectionUploadServiceProtocol {
-        func infer(frames: [(timestamp: Double, jpegData: Data)], sessionId: String?) async throws -> [BackendDetectionFrame]
-    }
-    final class LiveObjectDetectionUploadService: ObjectDetectionUploadServiceProtocol { /* mirrors LivePoseUploadService, decodes {frames: [BackendDetectionFrame]} */ }
-    ```
-18. Create `App/Services/Pose/ServeSegmentationUploadService.swift` — JSON POST (not multipart) to
-    `v1/segment`:
-    ```swift
-    import Foundation
-
     struct ProServeSegment: Decodable, Sendable {
         let frames: [BackendFrame]
         let detections: [[BackendDetection]]?
     }
 
-    protocol ServeSegmentationUploadServiceProtocol {
-        func segment(frames: [BackendFrame], detections: [[BackendDetection]]?, sessionId: String?) async throws -> [ProServeSegment]
+    protocol VideoSegmentationServiceProtocol {
+        func segmentVideo(at url: URL, sessionId: String?) async throws -> [ProServeSegment]
     }
 
-    final class LiveServeSegmentationUploadService: ServeSegmentationUploadServiceProtocol {
-        private struct RequestBody: Encodable {
-            let frames: [BackendFrame]
-            let detections: [[BackendDetection]]?
-            let sessionId: String?
-            enum CodingKeys: String, CodingKey { case frames, detections; case sessionId = "session_id" }
-        }
+    final class LiveVideoSegmentationService: VideoSegmentationServiceProtocol {
         private struct SegmentResponseBody: Decodable { let segments: [ProServeSegment] }
-
         private let baseURL: URL
         private let session: URLSession
 
@@ -317,42 +142,32 @@
             self.session = session
         }
 
-        func segment(frames: [BackendFrame], detections: [[BackendDetection]]?, sessionId: String?) async throws -> [ProServeSegment] {
-            var request = URLRequest(url: baseURL.appendingPathComponent("v1/segment"))
+        func segmentVideo(at url: URL, sessionId: String?) async throws -> [ProServeSegment] {
+            var components = URLComponents(url: baseURL.appendingPathComponent("v1/segment/video"), resolvingAgainstBaseURL: false)!
+            if let sessionId { components.queryItems = [URLQueryItem(name: "session_id", value: sessionId)] }
+            var request = URLRequest(url: components.url!)
             request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(RequestBody(frames: frames, detections: detections, sessionId: sessionId))
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                throw ProUploadError.networkError("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-            }
-            return try JSONDecoder().decode(SegmentResponseBody.self, from: data).segments
+            request.setValue("video/quicktime", forHTTPHeaderField: "Content-Type")
+            let body: SegmentResponseBody = try await sendUploadAndDecode(request, fromFile: url, session: session)
+            return body.segments
         }
     }
     ```
-19. Create tests for all three services using a `URLProtocol`-stubbing helper (new
-    `MyServeCoachTests/Support/StubURLProtocol.swift` — intercepts requests, returns a canned
-    response/data/error, and captures the last request for assertion; registered on a
-    `URLSessionConfiguration.ephemeral`-backed session passed into each service's `session:` init
-    param): one success-path test per service (asserts decoded result matches the stubbed JSON),
-    one non-2xx-status test per service (asserts `ProUploadError.networkError` thrown), one
-    malformed-JSON test per service (asserts a decoding error propagates, not silently swallowed).
-20. Run `scripts/verify.sh ios` — confirm green.
+16. `MyServeCoachTests/VideoSegmentationServiceTests.swift`: decode/status/malformed-JSON cases via
+    `StubURLProtocol`, using a dummy on-disk file for `upload(for:fromFile:)` (content is
+    irrelevant — the network layer is fully mocked). Notably does **not** assert on the uploaded
+    file's bytes: `upload(for:fromFile:)` doesn't expose its body through `URLRequest` the way
+    `data(for:)` does, so body-content assertions from the original per-frame-upload tests don't
+    carry over — only response-side behavior is tested here.
+17. Run `scripts/verify.sh ios` — confirm green.
 
 ## Group 4 — iOS: `ProServeAnalysisPipeline` Orchestration (surface: `ios`)
 
-21. Create `App/Services/Pose/ProServeAnalysisPipeline.swift`:
+18. `App/Services/Pose/ProServeAnalysisPipeline.swift` — **far simpler than originally planned**:
+    2 dependencies instead of 5, no frame sampling, no JPEG encoding, no timestamp-alignment logic
+    (the whole class of alignment bugs the original design needed a dedicated test for no longer
+    exists, since frames and detections are now produced together, in order, server-side):
     ```swift
-    import AVFoundation
-    import UIKit
-
-    enum ProPoseConstants {
-        /// P4b validated stride 2 against real footage for the off-device pipeline — denser than
-        /// Lite's Vision-tuned PoseConstants.kPoseSampleStride (3), specifically so fast swings
-        /// can't fall entirely between two sampled frames.
-        static let kStride: Int = 2
-    }
-
     struct AssessmentServeResult: Sendable {
         let serveIndex: Int
         let coaching: CoachingResult
@@ -362,44 +177,25 @@
         func analyze(videoURL: URL) async throws -> [AssessmentServeResult]
     }
 
+    enum ProServeAnalysisError: Error, Equatable {
+        case noSegmentsDetected
+    }
+
     actor ProServeAnalysisPipeline: ProServeAnalyzing {
-        private let sampler: FrameSamplerService
-        private let poseUploader: any PoseUploadServiceProtocol
-        private let detectionUploader: any ObjectDetectionUploadServiceProtocol
-        private let segmentationUploader: any ServeSegmentationUploadServiceProtocol
+        private let videoSegmentationService: any VideoSegmentationServiceProtocol
         private let coachingService: any CoachingServiceProtocol
 
         init(
-            sampler: FrameSamplerService = FrameSamplerService(),
-            poseUploader: any PoseUploadServiceProtocol = LivePoseUploadService(),
-            detectionUploader: any ObjectDetectionUploadServiceProtocol = LiveObjectDetectionUploadService(),
-            segmentationUploader: any ServeSegmentationUploadServiceProtocol = LiveServeSegmentationUploadService(),
+            videoSegmentationService: any VideoSegmentationServiceProtocol = LiveVideoSegmentationService(),
             coachingService: any CoachingServiceProtocol = LiveCoachingService()
         ) {
-            self.sampler = sampler
-            self.poseUploader = poseUploader
-            self.detectionUploader = detectionUploader
-            self.segmentationUploader = segmentationUploader
+            self.videoSegmentationService = videoSegmentationService
             self.coachingService = coachingService
         }
 
         func analyze(videoURL: URL) async throws -> [AssessmentServeResult] {
-            let asset = AVURLAsset(url: videoURL)
-            let sampled = try await sampleAtStride(asset: asset, stride: ProPoseConstants.kStride)
-            let jpegFrames = sampled.map { (timestamp: CMTimeGetSeconds($0.time), jpegData: Self.jpegData(from: $0.image)) }
-
-            async let poseFrames = poseUploader.infer(frames: jpegFrames, sessionId: nil)
-            async let detectionFrames = detectionUploader.infer(frames: jpegFrames, sessionId: nil)
-            let (frames, detections) = try await (poseFrames, detectionFrames)
-
-            let orderedDetections = frames.map { frame in
-                detectionFrames_lookup(detections, timestamp: frame.timestamp)
-            }
-
-            let segments = try await segmentationUploader.segment(
-                frames: frames, detections: orderedDetections, sessionId: nil
-            )
-
+            let segments = try await videoSegmentationService.segmentVideo(at: videoURL, sessionId: nil)
+            guard !segments.isEmpty else { throw ProServeAnalysisError.noSegmentsDetected }
             var results: [AssessmentServeResult] = []
             for (index, segment) in segments.enumerated() {
                 let coaching = try await coachingService.analyze(
@@ -409,52 +205,43 @@
             }
             return results
         }
-
-        // Reuses FrameSamplerService.makeSampler but overrides the stride so the Pro pipeline
-        // doesn't inherit Lite's Vision-tuned PoseConstants.kPoseSampleStride.
-        private func sampleAtStride(asset: AVAsset, stride: Int) async throws -> [(time: CMTime, image: CGImage)] {
-            // implementation samples asset frames at `stride`, structurally identical to
-            // FrameSamplerService.sampleFrames(from:) but parameterized on stride instead of
-            // reading PoseConstants.kPoseSampleStride — see FrameSamplerService for the pattern
-            // to mirror (track lookup, frameRate/duration load, AVAssetImageGenerator loop).
-        }
-
-        private static func jpegData(from image: CGImage) -> Data {
-            UIImage(cgImage: image).jpegData(compressionQuality: 0.85) ?? Data()
-        }
-
-        private func detectionFrames_lookup(_ detectionFrames: [BackendDetectionFrame], timestamp: Double) -> [BackendDetection] {
-            detectionFrames.first(where: { $0.timestamp == timestamp })?.detections ?? []
-        }
-    }
-
-    enum ProServeAnalysisError: Error {
-        case noSegmentsDetected
     }
     ```
-   Note for the implementer: `FrameSamplerService.makeSampler`/`sampleFrames` currently read
-   `PoseConstants.kPoseSampleStride` directly rather than taking a stride parameter. Either (a)
-   add an optional `stride: Int = PoseConstants.kPoseSampleStride` parameter to
-   `FrameSamplerService.makeSampler`/`sampleFrames` (preferred — small, backward-compatible
-   change, avoids duplicating the sampling loop) and call it with `stride:
-   ProPoseConstants.kStride` here, or (b) duplicate the loop as sketched above. Prefer (a); update
-   `FrameSamplerServiceTests.swift` to cover the new parameter's default-preserves-behavior case.
-22. If no segments are returned (`segments.isEmpty`), throw `ProServeAnalysisError.noSegmentsDetected`
-    rather than returning an empty array — gives the caller (Group 5) a distinct error path from
-    Lite's `noPoseDetected`, worded appropriately for Pro 2D ("No serves detected in this clip.").
-23. Create `MyServeCoachTests/ProServeAnalysisPipelineTests.swift` with mock implementations of
-    all four protocol dependencies (`MockPoseUploadService`, `MockObjectDetectionUploadService`,
-    `MockServeSegmentationUploadService`, `MockCoachingService` — the latter conforming to the
-    now-updated `CoachingServiceProtocol`):
-    - `test_ordersResultsBySegmentIndex`: 2 mock segments → 2 `AssessmentServeResult`s with
-      `serveIndex` 0 and 1, in order.
-    - `test_throwsNoSegmentsDetectedWhenSegmentationReturnsEmpty`.
-    - `test_propagatesPoseUploadFailure` / `test_propagatesDetectionUploadFailure` /
-      `test_propagatesSegmentationFailure` / `test_propagatesAnalyzeFailure` — each asserts the
-      pipeline rethrows rather than swallowing.
-    - `test_passesDetectionsAlignedByTimestampToSegmentation` — mock pose/detect responses with
-      out-of-order or partially-missing timestamps; assert the detections array passed to the
-      segmentation mock is aligned to `frames` by timestamp, not by array position.
+    `FrameSamplerService.makeSampler`/`sampleFrames`'s `stride:` parameter (added earlier this
+    phase for the now-deleted on-device sampling path) was **reverted** to its pre-phase shape
+    (reads `PoseConstants.kPoseSampleStride` directly) — its only consumer was deleted, so keeping
+    it would be dead surface area on a file Lite also depends on.
+19. `MyServeCoachTests/ProServeAnalysisPipelineTests.swift`: `MockVideoSegmentationService`
+    replaces the three original per-service mocks. Kept: `ordersResultsBySegmentIndex`,
+    `throwsNoSegmentsDetectedWhenSegmentationReturnsEmpty`, `propagatesSegmentationFailure`,
+    `propagatesAnalyzeFailure`. **Dropped**: `test_passesDetectionsAlignedByTimestampToSegmentation`
+    — the timestamp-alignment logic it tested no longer exists.
+20. Run `scripts/verify.sh ios` — confirm green.
+
+## Group 4b — iOS: Pro 2D Camera Resolution/FPS Lock (surface: `ios`)
+
+*(New group, added mid-phase — see requirements.md's "Pro 2D camera resolution/fps lock" Key
+Decision for the investigation that motivated it.)*
+
+21. `App/Services/Video/CameraService.swift`: `CameraServiceProtocol.configure(position:sessionMode:)`
+    gains a required `sessionMode: SessionMode` parameter. `_configure(position:sessionMode:)`
+    branches: `sessionMode == .pro2D` → `session.sessionPreset = .hd1280x720` plus a new
+    `_lockFrameRate(on:to:)` helper (`device.lockForConfiguration()`;
+    `activeVideoMinFrameDuration`/`activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)`;
+    `unlockForConfiguration()`). `sessionMode == .lite` → unchanged `.high` preset, no frame-rate
+    lock — byte-for-byte current behavior. `CameraService` is shared by both modes and isn't on
+    the protected Lite-isolation file list, but the branch keeps Lite's path untouched regardless,
+    since changing Lite's actual recorded resolution/fps is an unquantified risk to Lite's own,
+    separately-calibrated on-device segmentation.
+22. Thread `sessionMode` through the call chain: `App/ViewModels/CameraViewModel.swift` gains a
+    `sessionMode: SessionMode = .lite` init parameter, passed to `cameraService.configure(position:sessionMode:)`.
+    `App/Views/RecordServeView.swift` gains a `sessionMode: SessionMode = .lite` parameter (custom
+    `init` constructs `CameraViewModel(sessionMode:)`). `App/Views/VideoSourceSelectionView.swift`
+    passes `viewModel.selectedMode` into `RecordServeView(onClipSelected:sessionMode:)`.
+23. `MyServeCoachTests/CameraViewModelTests.swift`'s `MockCameraService.configure` signature
+    updated to match. **Not further unit-testable**: `AVCaptureDevice.default(...)` returns `nil`
+    on Simulator/CI — manual device verification only (spot-check recorded clip metadata via the
+    same `cv2.VideoCapture` check used during the mid-phase investigation).
 24. Run `scripts/verify.sh ios` — confirm green.
 
 ## Group 5 — iOS: Mode Selector (surface: `ios`)
@@ -770,15 +557,23 @@
 ## Group 9 — Cross-Cutting Verification (surface: `both`)
 
 46. Run `scripts/verify.sh backend` and `scripts/verify.sh ios` — both green.
-47. Run `git diff --name-only develop...HEAD` and confirm none of `PhaseReviewView.swift`,
+47. Run `git status --short` / `git diff develop...HEAD` and confirm none of `PhaseReviewView.swift`,
     `PoseAnalysisPipeline.swift`, `PoseEstimationService.swift`, `ServeSegmentationService.swift`,
-    `PhaseGuesser.swift`, `ContentView.swift` appear in the list.
+    `PhaseGuesser.swift`, `ContentView.swift` appear in the changed-file list — holds after the
+    mid-phase pivot too (`CameraService.swift`/`CameraViewModel.swift`/`RecordServeView.swift` are
+    shared-but-not-protected files touched by Group 4b, mode-gated to leave Lite's behavior
+    unchanged; none of the six protected files themselves were touched).
 48. Confirm `VideoSourceSelectionViewModelTests.swift`'s pre-existing Lite-path test cases
     (zero-segments / success / failure / permission branches) still pass unmodified in assertion
     content — only the `selectedMode: .lite` explicitness from step 28 was added, no existing
     assertion changed.
-49. Record in `validation.md` run notes: confirmation that a real Mac-hosted backend run (manual,
-    outside pytest/xcodebuild) was smoke-tested — record backend startup command, one real device
-    or simulator recording routed through Pro 2D mode end-to-end, and whether cues appeared as
-    expected. If a real device/backend pairing isn't available at implementation time, record that
-    explicitly as a known gap rather than silently skipping it.
+49. **Direct-backend verification** (bypassing iOS): streamed POST of real reference footage to
+    `POST /v1/segment/video` — confirms the server-side extraction path independent of any iOS
+    client behavior. Performed against 5 real clips during the mid-phase investigation (see
+    requirements.md Context); `ag_three_serves.MOV` returns 3 segments matching the direct-Python
+    `segment_serves` result exactly.
+50. Record in `validation.md` run notes: confirmation that a real Mac-hosted backend run (manual,
+    outside pytest/xcodebuild) was smoke-tested end-to-end on-device through Pro 2D mode,
+    including the specific 3-serve clip that originally failed. If a real device/backend pairing
+    isn't available at implementation time, record that explicitly as a known gap rather than
+    silently skipping it.

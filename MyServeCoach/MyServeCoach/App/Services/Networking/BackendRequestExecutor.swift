@@ -15,13 +15,27 @@ private let proRequestTimeout: TimeInterval = 180
 
 /// Sends `request` on `session`, validates a 2xx status (throwing `ProUploadError.networkError`
 /// otherwise), and decodes the response body as `T`. Shared by every Pro-mode backend client
-/// (`LiveCoachingService`, `LivePoseUploadService`, `LiveObjectDetectionUploadService`,
-/// `LiveServeSegmentationUploadService`) to avoid repeating the same status-check-and-decode
-/// boilerplate in each one.
+/// (`LiveCoachingService`, `LiveVideoSegmentationService`) to avoid repeating the same
+/// status-check-and-decode boilerplate in each one.
 func sendAndDecode<T: Decodable>(_ request: URLRequest, session: URLSession) async throws -> T {
     var request = request
     request.timeoutInterval = proRequestTimeout
     let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+        throw ProUploadError.networkError("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+    }
+    return try JSONDecoder().decode(T.self, from: data)
+}
+
+/// Streams `fileURL`'s contents as the request body via `URLSession.upload(for:fromFile:)` — the
+/// clip is already a file on disk, so this avoids ever materializing the whole video as `Data` in
+/// memory. Same status-check-and-decode contract as `sendAndDecode`.
+func sendUploadAndDecode<T: Decodable>(
+    _ request: URLRequest, fromFile fileURL: URL, session: URLSession
+) async throws -> T {
+    var request = request
+    request.timeoutInterval = proRequestTimeout
+    let (data, response) = try await session.upload(for: request, fromFile: fileURL)
     guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
         throw ProUploadError.networkError("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
     }

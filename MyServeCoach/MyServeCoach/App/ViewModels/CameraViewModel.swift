@@ -25,6 +25,7 @@ final class CameraViewModel {
 
     private let cameraService: any CameraServiceProtocol
     private let coordinator: PipelineCoordinator
+    private let sessionMode: SessionMode
 
     var session: AVCaptureSession { cameraService.session }
     var isRecording: Bool {
@@ -35,11 +36,13 @@ final class CameraViewModel {
     init(
         cameraService: any CameraServiceProtocol = CameraService(),
         permissionChecker: any PermissionChecking = CameraPermissionChecker(),
-        coordinator: PipelineCoordinator = PipelineCoordinator()
+        coordinator: PipelineCoordinator = PipelineCoordinator(),
+        sessionMode: SessionMode = .lite
     ) {
         self.cameraService = cameraService
         self.permissionChecker = permissionChecker
         self.coordinator = coordinator
+        self.sessionMode = sessionMode
     }
 
     func startSession() async {
@@ -49,7 +52,7 @@ final class CameraViewModel {
             return
         }
         do {
-            try cameraService.configure(position: cameraPosition)
+            try cameraService.configure(position: cameraPosition, sessionMode: sessionMode)
             cameraService.startSession()
         } catch {
             // Device unavailable; UI surfaces permissionDenied only — hardware

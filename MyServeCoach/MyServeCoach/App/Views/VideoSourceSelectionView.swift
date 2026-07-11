@@ -64,11 +64,14 @@ struct VideoSourceSelectionView: View {
             .navigationTitle("New Serve")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(isPresented: $viewModel.navigateToRecord) {
-                RecordServeView(onClipSelected: { url in
-                    viewModel.navigateToRecord = false
-                    viewModel.isProcessing = true
-                    Task { await viewModel.runPipeline(on: url, inputType: "recorded") }
-                })
+                RecordServeView(
+                    onClipSelected: { url in
+                        viewModel.navigateToRecord = false
+                        viewModel.isProcessing = true
+                        Task { await viewModel.runPipeline(on: url, inputType: "recorded") }
+                    },
+                    sessionMode: viewModel.selectedMode
+                )
             }
             .navigationDestination(isPresented: $viewModel.navigateToPhaseReview) {
                 if let phaseVM = viewModel.phaseReviewViewModel {
