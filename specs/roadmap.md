@@ -140,6 +140,8 @@ For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receiv
 > a segment with no real motion and drop it, which is a heuristic change out of scope for P6 —
 > revisit alongside P7 (which also depends on `segment_serves` for continuous multi-serve capture
 > and would benefit from the same fix) or as a small standalone heuristic phase.
+>
+> → **Now scheduled as Phase P6b.**
 
 > **Known gap (TODO, future phase):** P6's original iOS-side per-frame JPEG-upload architecture
 > (sample frames via `AVAssetImageGenerator`, encode via `UIImage.jpegData`, upload individually to
@@ -162,6 +164,44 @@ For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receiv
 > clips — Photos-library imports are copied as-is (`LibraryVideoExporter.copyToTemp`, not
 > re-encoded) and can still arrive at other resolutions/frame rates, carrying the same
 > under-segmentation risk the lock was meant to close.
+>
+> → Residual gaps (1) and (2) **now scheduled as Phase P6b.**
+
+### Phase P6b — Segmentation Robustness & Empty-Clip Detection (2D)
+
+Closes all three `segment_serves` known gaps left open by P6, scheduled ahead of P7 because P7's
+continuous multi-serve capture inherits every fix. **Empty-clip detection:** teach `segment_serves`
+(or its caller in `backend/app/engine/phases.py`) to recognize a segment with no genuine serve
+motion and drop it, so a serve-free clip returns an empty segment list — making the
+already-built-and-tested `ProServeAnalysisError.noSegmentsDetected` / "No serves detected in this
+clip" path reachable end-to-end from the real backend. **False-split reduction:** P4b-style
+calibration against an expanded hand-labeled dataset
+(`backend/tools/segmentation_ground_truth.json`) covering varied pre-serve routines (multiple ball
+bounces, grip adjustments), so an elaborate routine no longer over-segments one serve into two.
+**Import normalization:** normalize Photos-library imports to the validated 720×1280@30fps before
+segmentation (re-encode in `LibraryVideoExporter.copyToTemp` or a dedicated export path), mirroring
+the live-recording lock already in `CameraService.swift` and closing the import path's
+under-segmentation risk. Requires P4/P4b and P6.
+
+### Phase P6c — Assessment Results Visualization (2D)
+
+Turns the plain per-serve cue list into an aggregate, visual assessment. **Backend:** extend
+`AnalyzeResponse`/`Cue` (`backend/app/models.py`, `engine/rules.py`, `engine/phases.py`) to surface,
+per detected phase, the frame index/timestamp, and per cue the measured metric value plus ideal
+target/threshold (the deviation) — `detect_phases` and `evaluate_rules`/`_passes` already compute
+both and currently discard them. **iOS — retain frames & keypoints:** carry the flagged-phase
+frame's keypoints (`BackendFrame.keypoints`) and extract its image from the recorded/imported video
+at the returned timestamp (reuse `FrameThumbnailGenerator`) into
+`AssessmentServeResult`/`AssessmentServeDisplay`, persisted alongside cues via a new SwiftData field
+mirroring Lite's `PhaseRecord.frameImageData`. **iOS — aggregate cue view:** group cues by `ruleId`
+across all serves ("across X serves, 'Keep your tossing arm more vertical' was flagged N times")
+instead of only per-serve bullets, in `AssessmentResultView.swift` /
+`AssessmentResultViewModel.swift`. **iOS — skeleton overlay + deviation (pulled forward from P13):**
+net-new `Canvas`/`Path` renderer drawing the pose skeleton on the phase frame plus a visual
+indicator of the deviation from the rule's ideal alignment (e.g. measured toss-arm segment vs. the
+ideal vertical for `trophy_toss_arm_vertical`); no overlay renderer exists in iOS today. This
+delivers P13's "skeleton on results-screen keyframes" ahead of schedule — P13 is narrowed
+accordingly (see below). Requires P6; benefits from P6b's cleaner segmentation.
 
 ### Phase P7 — Goal Library & Set Goal Session Mode (2D)
 
@@ -197,7 +237,7 @@ Extend the Set-Goal session mode from P7 to Pro 3D mode. Enables goals that only
 
 ### Phase P13 — Pose Skeleton Overlay & Live Confidence Check
 
-Pre-recording skeleton overlay on the live iPhone feed with a joint-confidence warning. Skeleton drawn on keyframe thumbnails in the results screen.
+Pre-recording skeleton overlay on the live iPhone feed with a joint-confidence warning. (The results-screen keyframe skeleton overlay was delivered earlier in Phase P6c.)
 
 ### Phase P14 — Serve-Type Awareness
 
