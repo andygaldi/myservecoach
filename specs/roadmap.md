@@ -167,7 +167,7 @@ For each auto-detected phase frame, POST keypoints to `POST /v1/analyze`; receiv
 >
 > → Residual gaps (1) and (2) **now scheduled as Phase P6b.**
 
-### Phase P6b — Segmentation Robustness & Empty-Clip Detection (2D)
+### Phase P6b — Segmentation Robustness & Empty-Clip Detection (2D) ✅
 
 Closes all three `segment_serves` known gaps left open by P6, scheduled ahead of P7 because P7's
 continuous multi-serve capture inherits every fix. **Empty-clip detection:** teach `segment_serves`

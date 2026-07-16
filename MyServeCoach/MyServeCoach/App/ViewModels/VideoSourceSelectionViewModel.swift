@@ -35,6 +35,7 @@ final class VideoSourceSelectionViewModel {
     private let exporter = LibraryVideoExporter()
     private let coordinator: PipelineCoordinator
     private let proPipeline: any ProServeAnalyzing
+    private let reencoder: any VideoReencoding
     private(set) var pendingVideoURL: URL?
 
     @ObservationIgnored
@@ -45,11 +46,13 @@ final class VideoSourceSelectionViewModel {
     init(
         coordinator: PipelineCoordinator = PipelineCoordinator(),
         proPipeline: any ProServeAnalyzing = ProServeAnalysisPipeline(),
+        reencoder: any VideoReencoding = VideoReencoder(),
         permissionChecker: any PermissionChecking = PhotoLibraryPermissionChecker(),
         defaults: UserDefaults = .standard
     ) {
         self.coordinator = coordinator
         self.proPipeline = proPipeline
+        self.reencoder = reencoder
         self.permissionChecker = permissionChecker
         self.defaults = defaults
     }
@@ -134,18 +137,38 @@ final class VideoSourceSelectionViewModel {
             try? FileManager.default.removeItem(at: old)
             pendingVideoURL = nil
         }
+
+        // Photos-library imports bypass CameraService's live-capture 720x1280@30fps lock (the
+        // resolution/fps segment_serves is validated against) — LibraryVideoExporter.copyToTemp
+        // is a byte copy, not a re-encode. Recorded clips already arrive correctly locked, so
+        // they skip this step entirely.
+        var analysisURL = url
+        if inputType == "imported" {
+            do {
+                let reencoded = try await reencoder.reencode(sourceURL: url)
+                try? FileManager.default.removeItem(at: url)
+                analysisURL = reencoded
+            } catch {
+                errorMessage = "Could not process imported video. Try again."
+                try? FileManager.default.removeItem(at: url)
+                isProcessing = false
+                print("[VideoSourceSelection] Re-encode error: \(error)")
+                return
+            }
+        }
+
         do {
-            let results = try await proPipeline.analyze(videoURL: url)
-            pendingVideoURL = url
+            let results = try await proPipeline.analyze(videoURL: analysisURL)
+            pendingVideoURL = analysisURL
             pendingInputType = inputType
             assessmentResults = results
             navigateToAssessmentResults = true
         } catch ProServeAnalysisError.noSegmentsDetected {
             errorMessage = "No serves detected in this clip. Try a different clip."
-            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: analysisURL)
         } catch {
             errorMessage = "Could not analyze video. Try again."
-            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: analysisURL)
             print("[VideoSourceSelection] Pro pipeline error: \(error)")
         }
         isProcessing = false

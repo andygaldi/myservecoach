@@ -14,6 +14,14 @@ HANDEDNESS: dict[str, str] = {"hitting": "right", "toss": "left"}
 
 MIN_REST_SECONDS = 0.3
 LOW_MOTION_VELOCITY_THRESHOLD = 0.03  # normalized units per second
+# A rest gap only counts as a serve boundary if the active run immediately preceding it lasted at
+# least this long — distinguishes a genuine completed swing (real serves run well over a second,
+# e.g. ~1.9s release-to-finish on real calibration footage) from a brief mid-routine fidget (a
+# single ball bounce or grip adjustment), which can otherwise cross MIN_REST_SECONDS on its own
+# pause and false-split one serve into two. Bounded below the tightest synthetic test fixture's
+# ~0.167s active burst (test_two_serves_separated_by_rest_gap_returns_two_segments) so existing
+# unit tests are unaffected.
+MIN_ACTIVE_RUN_SECONDS = 0.15
 CONTACT_WRIST_WEIGHT = 0.5
 CONTACT_PROXIMITY_WEIGHT = 0.5
 TROPHY_HIP_WEIGHT = 0.5
@@ -58,13 +66,16 @@ def segment_serves(
     frames: list[Frame],
     min_rest_seconds: float = MIN_REST_SECONDS,
     velocity_threshold: float = LOW_MOTION_VELOCITY_THRESHOLD,
+    min_active_run_seconds: float = MIN_ACTIVE_RUN_SECONDS,
 ) -> list[list[Frame]]:
     """Split a continuous recording's frames into per-serve sub-lists.
 
     A boundary is declared after a sustained low-velocity ("rest") window spanning at least
-    min_rest_seconds of real time, but only once genuine motion has already been seen — so
+    min_rest_seconds of real time, but only once genuine motion has already been seen (so
     leading/trailing idle padding at the very start/end of the clip is never split off as its
-    own empty "serve".
+    own empty "serve") and only once the active run immediately preceding the rest lasted at
+    least min_active_run_seconds (so a brief mid-routine pause — a ball bounce, a grip
+    adjustment — can't false-split one serve into two; see MIN_ACTIVE_RUN_SECONDS).
     """
     if not frames:
         return []
@@ -72,18 +83,30 @@ def segment_serves(
     boundaries: list[int] = []
     rest_run_start: int | None = None
     has_seen_active = False
+    # Index where the *current, unbroken* active run began — reset every time velocity resumes
+    # after a rest (whether or not that rest was accepted as a boundary), so it always measures
+    # just the run immediately preceding the next candidate rest. (Using the previous boundary
+    # index instead would be wrong: a boundary lands at the *midpoint* of its rest gap, which
+    # would silently credit half of that rest as "active" time toward the next candidate.)
+    active_run_start = 0
 
     for i in range(1, len(frames)):
         velocity = _frame_velocity(frames[i - 1], frames[i])
         if velocity >= velocity_threshold:
             if rest_run_start is not None and has_seen_active:
                 rest_duration = frames[i - 1].timestamp - frames[rest_run_start].timestamp
-                if rest_duration >= min_rest_seconds:
+                active_duration = frames[rest_run_start - 1].timestamp - frames[active_run_start].timestamp
+                if rest_duration >= min_rest_seconds and active_duration >= min_active_run_seconds:
                     boundaries.append((rest_run_start + i - 1) // 2)
+            if rest_run_start is not None:
+                active_run_start = i - 1
             rest_run_start = None
             has_seen_active = True
         elif rest_run_start is None:
             rest_run_start = i
+
+    if not has_seen_active:
+        return []
 
     segments: list[list[Frame]] = []
     start = 0

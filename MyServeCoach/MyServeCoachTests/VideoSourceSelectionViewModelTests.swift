@@ -256,6 +256,56 @@ struct VideoSourceSelectionViewModelTests {
         #expect(vm.errorMessage == nil)
     }
 
+    // MARK: - Import re-encode gating (Phase P6b)
+
+    @Test("Pro 2D mode: imported clip is re-encoded before analysis")
+    func proModeImportedClipReencodesBeforeAnalyzing() async {
+        let reencoder = MockVideoReencoding()
+        let proMock = MockProServeAnalyzing(results: [AssessmentServeResult(serveIndex: 0, coaching: CoachingResult(cues: [], summary: nil))])
+        let vm = makeVM(proAnalyzer: proMock, reencoder: reencoder)
+        vm.selectedMode = .pro2D
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url, inputType: "imported")
+
+        #expect(await reencoder.callCount == 1)
+        #expect(await reencoder.receivedURL == url)
+        #expect(vm.pendingVideoURL != url)  // the reencoded URL, not the original import
+        #expect(vm.navigateToAssessmentResults == true)
+    }
+
+    @Test("Pro 2D mode: recorded clip skips re-encoding entirely")
+    func proModeRecordedClipSkipsReencoding() async {
+        let reencoder = MockVideoReencoding()
+        let proMock = MockProServeAnalyzing(results: [AssessmentServeResult(serveIndex: 0, coaching: CoachingResult(cues: [], summary: nil))])
+        let vm = makeVM(proAnalyzer: proMock, reencoder: reencoder)
+        vm.selectedMode = .pro2D
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url, inputType: "recorded")
+
+        #expect(await reencoder.callCount == 0)
+        #expect(vm.pendingVideoURL == url)
+        #expect(vm.navigateToAssessmentResults == true)
+    }
+
+    @Test("Pro 2D mode: re-encode failure sets a distinct error message and resets processing state")
+    func proModeReencodeFailureSetsErrorMessage() async {
+        let reencoder = MockVideoReencoding(error: MockError.failed)
+        let vm = makeVM(reencoder: reencoder)
+        vm.selectedMode = .pro2D
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-\(UUID().uuidString).mov")
+
+        await vm.runPipeline(on: url, inputType: "imported")
+
+        #expect(vm.errorMessage == "Could not process imported video. Try again.")
+        #expect(vm.isProcessing == false)
+        #expect(vm.navigateToAssessmentResults == false)
+    }
+
     // MARK: - Lite path, unchanged (explicit .lite mode)
 
     @Test("Lite mode: zero segments → errorMessage set, isProcessing cleared")
@@ -304,12 +354,14 @@ struct VideoSourceSelectionViewModelTests {
 private func makeVM(
     pipeline: any PoseAnalyzing = MockPipeline(segments: []),
     authStatus: PHAuthorizationStatus = .authorized,
-    proAnalyzer: any ProServeAnalyzing = MockProServeAnalyzing()
+    proAnalyzer: any ProServeAnalyzing = MockProServeAnalyzing(),
+    reencoder: any VideoReencoding = MockVideoReencoding()
 ) -> VideoSourceSelectionViewModel {
     let granted = authStatus != .denied && authStatus != .restricted
     return VideoSourceSelectionViewModel(
         coordinator: PipelineCoordinator(pipeline: pipeline),
         proPipeline: proAnalyzer,
+        reencoder: reencoder,
         permissionChecker: MockPermissionChecker(granted: granted),
         defaults: makeIsolatedDefaults()
     )
@@ -370,5 +422,23 @@ private actor MockProServeAnalyzing: ProServeAnalyzing {
         wasCalled = true
         if let error { throw error }
         return results
+    }
+}
+
+private actor MockVideoReencoding: VideoReencoding {
+    var error: Error?
+    private(set) var callCount = 0
+    private(set) var receivedURL: URL?
+
+    init(error: Error? = nil) {
+        self.error = error
+    }
+
+    func reencode(sourceURL: URL) async throws -> URL {
+        callCount += 1
+        receivedURL = sourceURL
+        if let error { throw error }
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("reencoded-\(UUID().uuidString).mov")
     }
 }

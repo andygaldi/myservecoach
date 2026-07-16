@@ -21,45 +21,7 @@ struct FrameSamplerServiceTests {
 
     // MARK: - Helpers
 
-    /// Writes a minimal H264 video with black frames to a temp file.
     private func makeTestVideo(frameCount: Int, frameRate: Float) async throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("mov")
-
-        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 32,
-            AVVideoHeightKey: 32
-        ])
-        input.expectsMediaDataInRealTime = false
-
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input,
-            sourcePixelBufferAttributes: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: 32 as Int,
-                kCVPixelBufferHeightKey as String: 32 as Int
-            ]
-        )
-        writer.add(input)
-        writer.startWriting()
-        writer.startSession(atSourceTime: .zero)
-
-        let timeScale = CMTimeScale(frameRate)
-        for i in 0..<frameCount {
-            while !input.isReadyForMoreMediaData { await Task.yield() }
-            var pb: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, adaptor.pixelBufferPool!, &pb)
-            adaptor.append(pb!, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: timeScale))
-        }
-
-        input.markAsFinished()
-        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-            writer.finishWriting { c.resume() }
-        }
-
-        return url
+        try await TestVideoFixture.make(width: 32, height: 32, frameCount: frameCount, frameRate: frameRate)
     }
 }

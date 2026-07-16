@@ -32,6 +32,13 @@ def test_single_serve_no_rest_gap_returns_one_segment():
     assert segments[0] == frames
 
 
+def test_all_idle_frames_returns_empty_list():
+    # Velocity never crosses the threshold anywhere in the clip — pure idle/noise, no genuine
+    # serve motion — should be rejected outright rather than falling through as one bogus segment.
+    frames = _rest_burst(x=0.3, count=20, start_index=0, fps=30.0)
+    assert segment_serves(frames) == []
+
+
 def test_two_serves_separated_by_rest_gap_returns_two_segments():
     fps = 30.0
     active1 = _active_burst(start_x=0.0, x_step=0.1, count=6, start_index=0, fps=fps)  # x: 0.0..0.5
@@ -130,3 +137,77 @@ def test_segmentation_is_fps_invariant():
 
     assert len(segments_30fps) == 2
     assert len(segments_58_4fps) == 2
+
+
+def _serve_with_mid_routine_pause(fps: float = 30.0) -> list:
+    """One serve with an elaborate-pre-serve-routine pattern embedded: a brief bounce (short
+    active burst), a mid-routine pause long enough to clear MIN_REST_SECONDS on its own
+    (0.5s — deliberately longer than any MIN_REST_SECONDS value the existing
+    test_two_serves_separated_by_rest_gap_returns_two_segments fixture would tolerate raising
+    to, so retuning that constant alone could never fix this), then the real swing (a long
+    active burst), then a real trailing rest.
+
+    Without MIN_ACTIVE_RUN_SECONDS, this used to false-split into 2 segments at the mid-routine
+    pause, because the pause alone already exceeds MIN_REST_SECONDS.
+    """
+    bounce = _active_burst(start_x=0.0, x_step=0.1, count=3, start_index=0, fps=fps)  # ~0.067s active
+    pause = _rest_burst(x=0.3, count=16, start_index=3, fps=fps)  # spans 0.5s > MIN_REST_SECONDS
+    swing = _active_burst(start_x=0.3, x_step=0.1, count=12, start_index=19, fps=fps)  # ~0.37s active
+    trailing_rest = _rest_burst(x=swing[-1].keypoints["right_wrist"].x, count=16, start_index=31, fps=fps)
+    return bounce + pause + swing + trailing_rest
+
+
+def test_mid_routine_pause_does_not_false_split():
+    frames = _serve_with_mid_routine_pause()
+
+    segments = segment_serves(frames)
+
+    assert len(segments) == 1
+    assert segments[0] == frames
+
+
+def test_mid_routine_pause_on_second_serve_does_not_false_split():
+    # Regression test: an active-run-duration measurement that (incorrectly) started counting
+    # from the previous boundary's rest-gap *midpoint*, rather than the true start of the new
+    # active run, would silently credit part of serve1's own trailing rest as "active" time
+    # toward serve2's embedded mid-routine pause — letting the false-split bug reappear from the
+    # second serve onward even though test_mid_routine_pause_does_not_false_split (serve 1 only)
+    # passes. Reproduces the bug directly by placing the same bounce/pause/swing pattern on serve
+    # 2 of a two-serve clip.
+    fps = 30.0
+    serve1 = _active_burst(start_x=0.0, x_step=0.1, count=12, start_index=0, fps=fps)  # ~0.37s active
+    real_rest = _rest_burst(
+        x=serve1[-1].keypoints["right_wrist"].x, count=31, start_index=len(serve1), fps=fps
+    )  # ~1.0s real between-serve rest
+    serve2_start = len(serve1) + len(real_rest)
+    bounce = _active_burst(start_x=0.0, x_step=0.1, count=3, start_index=serve2_start, fps=fps)
+    pause = _rest_burst(x=0.3, count=16, start_index=serve2_start + 3, fps=fps)  # 0.5s pause
+    swing = _active_burst(start_x=0.3, x_step=0.1, count=12, start_index=serve2_start + 19, fps=fps)
+    frames = serve1 + real_rest + bounce + pause + swing
+
+    segments = segment_serves(frames)
+
+    assert len(segments) == 2
+
+
+def test_mid_routine_pause_still_allows_correct_split_before_next_serve():
+    fps = 30.0
+    serve1 = _serve_with_mid_routine_pause(fps=fps)
+    # A real between-serve rest (~1.0s) after serve1's real swing, then a second serve.
+    real_rest = _rest_burst(
+        x=serve1[-1].keypoints["right_wrist"].x, count=31, start_index=len(serve1), fps=fps
+    )
+    serve2 = _active_burst(
+        start_x=0.0, x_step=0.1, count=10, start_index=len(serve1) + len(real_rest), fps=fps
+    )
+    frames = serve1 + real_rest + serve2
+
+    segments = segment_serves(frames)
+
+    assert len(segments) == 2
+    # The boundary lands after serve1's real swing, not after the mid-routine bounce — serve1's
+    # swing frames (indices 19..30 of serve1, i.e. the last 12 frames before real_rest) must all
+    # be in the first segment.
+    swing_end_index = 30
+    assert frames.index(segments[0][-1]) >= swing_end_index
+    assert frames.index(segments[1][0]) > swing_end_index
