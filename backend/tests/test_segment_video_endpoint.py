@@ -22,8 +22,17 @@ def _make_video(path: Path, num_frames: int = 60, fps: float = 30.0) -> None:
 
 
 class StubPoseModel:
+    """Moves a keypoint a little on every call, so segment_serves sees genuine motion instead
+    of being rejected as an all-idle clip (each request gets a fresh instance via the
+    dependency override, so the counter always starts at 0 per request)."""
+
+    def __init__(self):
+        self._call_count = 0
+
     def infer(self, image):
-        return {"right_wrist": Keypoint(x=0.5, y=0.5, confidence=0.9)}
+        x = 0.1 + 0.01 * self._call_count
+        self._call_count += 1
+        return {"right_wrist": Keypoint(x=x, y=0.5, confidence=0.9)}
 
 
 class StubDetectionModel:
