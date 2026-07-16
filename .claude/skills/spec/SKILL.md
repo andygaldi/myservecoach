@@ -66,7 +66,7 @@ applicable — specific enough that `/phase` can implement them without ambiguit
 - Any ordering concerns or missing sub-tasks?
 - Which surface (`backend` or `ios`) each group targets (if mixed)?
 
-Apply the user's answers, then write the file to `phases/YYYY-MM-DD-<name>/spec.md`.
+Apply the user's answers, then write the file to `phases/YYYY-MM-DD-<name>/plan.md`.
 
 ### Step 5 — Draft and confirm `validation.md`
 
@@ -107,7 +107,7 @@ Then tell the user:
 
 Files:
   phases/YYYY-MM-DD-<name>/requirements.md
-  phases/YYYY-MM-DD-<name>/spec.md
+  phases/YYYY-MM-DD-<name>/plan.md
   phases/YYYY-MM-DD-<name>/validation.md
 
 Next: review the spec, ask for any changes, then run /phase <YYYY-MM-DD-<name>> to implement.

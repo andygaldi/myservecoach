@@ -70,7 +70,7 @@ Run `/phase` with the phase folder name. The skill:
 
 If you find issues after review, ask the agent to fix them with both the spec and implementation in sync:
 
-> Update phases/YYYY-MM-DD-feature-name/spec.md and implementation to [Requested change]
+> Update phases/YYYY-MM-DD-feature-name/plan.md and implementation to [Requested change]
 
 ### Feature Validation and Merge
 
