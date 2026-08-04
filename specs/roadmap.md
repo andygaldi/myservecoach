@@ -183,7 +183,7 @@ segmentation (re-encode in `LibraryVideoExporter.copyToTemp` or a dedicated expo
 the live-recording lock already in `CameraService.swift` and closing the import path's
 under-segmentation risk. Requires P4/P4b and P6.
 
-### Phase P6c — Assessment Results Visualization (2D)
+### Phase P6c — Assessment Results Visualization (2D) ✅
 
 Turns the plain per-serve cue list into an aggregate, visual assessment. **Backend:** extend
 `AnalyzeResponse`/`Cue` (`backend/app/models.py`, `engine/rules.py`, `engine/phases.py`) to surface,

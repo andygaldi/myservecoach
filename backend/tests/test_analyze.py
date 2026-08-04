@@ -2,7 +2,8 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from app.main import app
-from app.models import AnalyzeResponse
+from app.models import AnalyzeResponse, Frame, ServePhase
+from app.engine.phases import detect_phases
 from app.engine.rules import _Rule
 import app.engine.rules as rules_module
 
@@ -228,3 +229,63 @@ async def test_ball_offset_rule_does_not_fire_without_detections(transport, monk
     assert response.status_code == 200
     body = AnalyzeResponse.model_validate(response.json())
     assert body.cues == []
+
+
+# --- Detected-phase timing (P6c) ---
+
+
+@pytest.mark.asyncio
+async def test_phases_reports_index_and_timestamp_for_each_detected_phase(transport):
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/v1/analyze", json={"frames": CLEAN_SERVE_FRAMES})
+    assert response.status_code == 200
+    body = AnalyzeResponse.model_validate(response.json())
+
+    assert body.phases, "expected at least one detected phase for a clean serve sequence"
+    for entry in body.phases:
+        assert 0 <= entry.frame_index < len(CLEAN_SERVE_FRAMES)
+        # The index must join back to a frame whose timestamp matches the reported one.
+        assert CLEAN_SERVE_FRAMES[entry.frame_index]["timestamp"] == entry.timestamp
+
+
+@pytest.mark.asyncio
+async def test_phases_matches_detect_phases_output_exactly(transport):
+    """Only phases detect_phases actually resolved appear — no sentinel entries for None."""
+    frames = [Frame.model_validate(f) for f in CLEAN_SERVE_FRAMES]
+    expected = {phase for phase, frame in detect_phases(frames).items() if frame is not None}
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/v1/analyze", json={"frames": CLEAN_SERVE_FRAMES})
+    body = AnalyzeResponse.model_validate(response.json())
+
+    assert {entry.phase for entry in body.phases} == expected
+
+
+@pytest.mark.asyncio
+async def test_phases_are_ordered_by_serve_phase_declaration(transport):
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/v1/analyze", json={"frames": CLEAN_SERVE_FRAMES})
+    body = AnalyzeResponse.model_validate(response.json())
+
+    declaration_order = list(ServePhase)
+    indices = [declaration_order.index(entry.phase) for entry in body.phases]
+    assert indices == sorted(indices)
+
+
+@pytest.mark.asyncio
+async def test_cue_deviation_detail_survives_the_wire(transport, monkeypatch):
+    """The deviation fields evaluate_rules attaches are serialized by the endpoint, not dropped."""
+    monkeypatch.setattr(rules_module, "_RULES", [BALL_OFFSET_RULE])
+    ball_detection = {"label": "ball", "confidence": 0.9, "bbox": {"x_min": 0.35, "y_min": 0.75, "x_max": 0.45, "y_max": 0.85}}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/analyze",
+            json={"frames": [CONTACT_ONLY_FRAME], "detections": [[ball_detection]]},
+        )
+    body = AnalyzeResponse.model_validate(response.json())
+    cue = body.cues[0]
+    assert cue.metric == BALL_OFFSET_RULE.metric
+    assert cue.joints == BALL_OFFSET_RULE.joints
+    assert cue.comparison == BALL_OFFSET_RULE.comparison
+    assert cue.threshold == BALL_OFFSET_RULE.threshold
+    assert cue.measured_value is not None

@@ -66,11 +66,35 @@ class Cue(BaseModel):
     phase: ServePhase
     message: str
     severity: Severity
+    # Deviation detail (P6c): the measured value that failed the rule, plus the rule's own
+    # metric/joints/threshold spec, so a client can render "measured 62° · target ≤45°" and draw
+    # the measured segment without a hardcoded rule_id → visual mapping of its own. All optional
+    # so a Cue can still be constructed from rule identity alone.
+    metric: str | None = None
+    joints: list[str] = Field(default_factory=list)
+    measured_value: float | None = None
+    comparison: str | None = None
+    threshold: float | None = None
+    threshold_min: float | None = None
+    threshold_max: float | None = None
+
+
+class PhaseDetection(BaseModel):
+    """Where a detected phase landed in the request's frame list.
+
+    Keypoints are deliberately not repeated here — a client that posted the frames already has
+    them, and `frame_index`/`timestamp` are enough to join back to the original frame.
+    """
+
+    phase: ServePhase
+    frame_index: int
+    timestamp: float
 
 
 class AnalyzeResponse(BaseModel):
     cues: list[Cue] = Field(default_factory=list)
     summary: str | None = None
+    phases: list[PhaseDetection] = Field(default_factory=list)
 
 
 class PoseResponse(BaseModel):

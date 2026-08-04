@@ -63,7 +63,7 @@ Phase P6c is complete when all of the following pass.
 
 | Check | How to verify |
 |---|---|
-| Persisted `CueRecord`s aggregate with the same semantics as the live path | `-only-testing:MyServeCoachTests/AssessmentHistoryDetailTests` — "aggregates persisted CueRecords across serves". |
+| Persisted `CueRecord`s aggregate with the same semantics as the live path | `-only-testing:MyServeCoachTests/AssessmentHistoryPresenterTests` — "aggregates persisted CueRecords across serves". |
 | A pre-P6c session (zero `PhaseFrameRecord`s, `nil` deviation fields) renders today's text-only layout | Same suite — "a pre-P6c session with no phase frames yields no frame blocks": no empty image wells, no placeholder frames, no `"measured — · target —"` lines. |
 | Undecodable `keypointsJSON` renders the image with no skeleton rather than dropping the frame or crashing | Same suite — "undecodable keypoints JSON yields a frame block with no skeleton". |
 | Aggregation/decoding lives outside the view body | Inspection — `AssessmentHistoryDetailView`'s body contains no `JSONDecoder` or grouping logic (CLAUDE.md: views stay thin). |
@@ -106,4 +106,151 @@ Minimum bar for squash-merging into `develop`:
 
 **Run notes:**
 
-_(filled in during `/phase`)_
+- **Automated verification.** `scripts/verify.sh backend` → exit 0 (190 passed, 3 skipped; 182
+  before this phase, so +8 new backend tests). `scripts/verify.sh ios` → exit 0. No pre-existing
+  test needed an assertion change on either surface — the new `Cue` fields are optional on the wire
+  and the new SwiftData properties are all defaulted, exactly as the field-default design intended.
+
+- **Group 1 (backend).** `rules.py`'s diff is only the seven added `Cue(...)` keyword arguments;
+  `git diff -- backend/rules.json backend/app/engine/phases.py` is empty. `analyze.py` recovers
+  each phase's `frame_index` through an `{id(frame): index}` map built once before the loop —
+  identity rather than timestamp, since `detect_phases` returns the very `Frame` objects it was
+  handed and two frames sharing a timestamp would otherwise collide.
+
+- **Group 2 deviation from plan — batched extraction.** The plan had `ProServeAnalysisPipeline`
+  reusing Lite's `FrameThumbnailGenerator` once per phase frame. Implemented instead as a new
+  `PhaseFrameImageExtractor` (`PhaseFrameImageProviding`) that shares one `AVURLAsset` and one
+  `AVAssetImageGenerator` across every requested timestamp via `images(for:)`. This is the plan's
+  own listed remedy for the latency budget (step 42), adopted upfront rather than reactively, and
+  it has the side benefit of leaving `FrameThumbnailGenerator` — Lite-shared code — completely
+  untouched. Timestamps are keyed on `CMTime.value` rather than round-tripped `Double`s, because
+  `CMTime(seconds:)` is lossy for values like 1/3; covered by
+  `PhaseFrameImageExtractorTests.lossyTimestampsAreKeyedByOriginalValue`.
+
+- **Group 2 robustness finding.** A test crash (`Dictionary(uniqueKeysWithValues:)` trapping on
+  duplicate keys) surfaced that two serves can legitimately report the same phase timestamp. The
+  pipeline now deduplicates timestamps before requesting extraction, so a repeat costs one
+  extraction rather than two.
+
+- **Design addition not in the plan — `unpairedCues`.** Cues whose phase has no rendered frame
+  (extraction failed, image undecodable, or a phase outside the displayed four) surface as plain
+  rows via `AssessmentServeSectionDisplay.unpairedCues`. Losing imagery must never silently lose
+  coaching; covered by tests on both the live and history paths.
+
+- **Group 4 coordinate handling.** All ideal indicators are derived in *normalized* space and only
+  then mapped to screen, because the backend computes its angles on normalized coordinates
+  (`angles.py`), where the frame's aspect ratio is squashed into a unit square. Deriving a dashed
+  ray in screen space would have placed it somewhere the reported number doesn't correspond to.
+  Consequence to keep in mind: a "45°" ideal ray is not 45° measured with an on-screen protractor —
+  it sits where a limb at that threshold would actually appear.
+
+- **Group 4 confidence floor.** `PoseSkeletonGeometry.minConfidence` is 0.4, matching
+  `MIN_CONFIDENCE` in `backend/app/engine/angles.py` (the plan had sketched 0.3), so the overlay
+  draws exactly the joints the rule engine was willing to measure. Pinned by
+  `PoseSkeletonGeometryTests.confidenceFloorMatchesBackend`.
+
+- **Groups 5/6 duplication removed.** `AssessmentResultView` and `AssessmentHistoryDetailView`
+  previously duplicated `header`/`cueRow`/`resultSection`. Both now render through the shared
+  `AssessmentHeaderView` / `AssessmentAggregateSection` / `AssessmentServeSectionView` /
+  `PhaseFrameBlockView` / `CueRowView`, fed by plain display models. History decoding and
+  aggregation live in `AssessmentHistoryPresenter`, not the view body.
+
+- **Manual real-device verification (hard merge gate) — PASSED**, run against a real device paired
+  with the Mac-hosted backend on an imported Photos-library clip.
+  - Skeleton orientation and alignment on real footage: **correct** — right way up, sitting on the
+    player's body. This was the phase's highest-risk item (the y-flip / aspect-fit bug class) and
+    it is the one thing unit tests could assert numerically but not prove visually.
+  - Frame extraction latency: **within the ≤ 2 s budget** by observation. The batched extractor
+    above is the likely reason there was headroom.
+  - Highlighted segment and ideal-indicator placement vs. cue text: **correct for every cue that
+    fired**, confirmed across both metric families the validation row calls for — an angle-family
+    cue (dashed ray + arc) and, on a separate clip that tripped the racket-drop ball rules, a
+    `ball_offset_*` cue (target box + ball marker). This row is fully satisfied.
+  - Aggregate counts and history replay: consistent with the per-serve sections.
+  - **Partial coverage, disclosed:** the available test serves did not trigger all nine rules in
+    `rules.json`, so the `y_diff`/`x_diff` **band** branch (`release_toss_hand_eye_height`,
+    `contact_shoulders_stacked`) was not among the cues visually confirmed on real footage. That
+    branch is covered by `CueOverlayGeometryTests` (`yDiffBandOffsetFromReference`,
+    `openEndedBands`, `xDiffProducesVerticalBand`, `allBackendMetricsAreHandled`), and an
+    unrecognized or unresolvable metric degrades to skeleton + highlight rather than crashing, so
+    the residual risk is cosmetic band placement rather than a crash or a wrong number. Worth a
+    look whenever footage that trips those two rules is available.
+
+- **Deep review (3 parallel agents: correctness / design / spec compliance).** Correctness came
+  back clean on the phase's highest-risk areas — every y-flip branch in `drawIdeal`
+  (`horizontalBand`, `verticalBand`, `.box` corner swap), the `cross`-based side selection, the
+  backend `id(frame)` join, and the aggregate ordering were hand-checked and confirmed correct.
+  Findings applied:
+  - **`PhaseFrameImageExtractor` seek tolerance ±0.1s → `.zero` (the one high-severity defect).**
+    The tolerance had been copied verbatim from Lite's `FrameThumbnailGenerator`, where nothing is
+    drawn over the thumbnail. Here the overlay draws *this frame's* keypoints on the image, and
+    the backend samples at `DEFAULT_STRIDE = 2` (~67 ms apart at 30fps), so ±100 ms allowed the
+    returned image to be up to 1.5 sampled frames away from its keypoints — the highlighted limb
+    would float off the body at contact, the fastest-moving moment of the serve. Note the manual
+    device check would not have caught this: trophy pose is slow enough to look right.
+  - `CueOverlayGeometry.highlightedPolyline` is now all-or-nothing. It previously `compactMap`ped
+    away unresolvable joints, so a low-confidence elbow turned a three-joint arm rule into a
+    straight shoulder→wrist line rendered directly beneath "Straighten your tossing arm."
+  - Phase-frame timestamps now come from the locally-held `segment.frames[i].timestamp` rather
+    than the echoed wire value, joining image to keypoints by construction.
+  - Open-ended (`gte`/`lte`) ball-offset boxes run to the frame edge instead of being closed at
+    the cross-axis width, which would have implied an accepted value was out of range. Latent
+    today — both ball rules are `range` — but wrong for any future open-ended rule.
+  - Joint dots deduplicated via new `PoseSkeletonGeometry.jointNames`/`jointPoints`: `bones` names
+    24 endpoints across 12 distinct joints, so shoulders and hips were compositing their
+    translucent dot three times (~0.97 alpha) against 0.7 at the wrists and ankles — inverting the
+    flat dimmed look.
+  - Severity→colour unified into `Color(severity:)`. The overlay and the cue rows had opposite
+    fallbacks for an unrecognized severity.
+  - `test_every_rule_in_rules_json_emits_its_own_metric_and_joints` was passing for the wrong
+    reason — it asserted on a hand-built `Cue` and never called `evaluate_rules`, so deleting all
+    seven kwargs in `rules.py` left it green. Replaced with
+    `test_evaluate_rules_populates_deviation_detail_for_every_rule`, which drives the real path
+    once per rule with a rigged-to-fail threshold. **Verified by mutation**: with the kwargs
+    removed, 4 tests fail; restored, 33 pass.
+  - Added the missing aggregate phase-tie-break assertion, `highlightedPolyline` all-or-nothing
+    cases, the open-ended ball-box case, and joint-dedup cases. Removed dead code
+    (`AssessmentServeDisplay.cuesByPhase`, `AssessmentCueDisplay.isMajor`, public `target(for:)`).
+  - `PoseSkeletonGeometryTests.confidenceFloorIsPinned` reworded: it is a change-detector for the
+    iOS constant and *cannot* observe `MIN_CONFIDENCE` drifting in `angles.py`. Keeping the two in
+    step is a manual obligation, now stated in the test.
+
+- **Recorded, not fixed — angle captions are aspect-distorted.** `pose_model.py:85` normalizes x
+  by width and y by height independently, so `compute_angle` measures in a squashed unit square.
+  At the locked 720×1280 Pro 2D capture the vertical component is stretched by 1280/720 = 1.78 in
+  the tangent: a limb truly 30° off vertical reports **≈45.8°**. Pass/fail is unaffected (P5
+  calibrated its thresholds in exactly this space) and `CueOverlayGeometry` deliberately derives
+  ray placement in the same space so the drawing stays consistent with the number — but P6c is the
+  first phase to print that raw value to a user with a `°` sign ("measured 62° · target ≤45°"), and
+  it is not an anatomically true angle. Out of scope to change here: correcting it means either
+  re-deriving thresholds (P5's domain) or aspect-correcting the metric, both of which alter
+  pass/fail. Worth an explicit decision in a later phase — either aspect-correct the angle metrics
+  and recalibrate, or drop the `°` unit from the caption so the number reads as a relative score.
+
+- **Known cleanup, deliberately deferred:** `AssessmentResultViewModel.section(for:cueDisplays:)`
+  and `AssessmentHistoryPresenter.section(for:cueDisplays:)` duplicate ~45 lines of section
+  construction (identical cue-display id scheme, phase grouping, and `unpairedCues` derivation),
+  differing only in whether keypoints are decoded or passed through. Both agents flagged it. Left
+  as-is by owner decision: the view-layer duplication this phase set out to remove *is* gone, the
+  shared logic is tested from both entry points, and the refactor would churn verified code
+  immediately before merge. Natural cleanup is to lift both into `AssessmentDisplayBuilder`.
+
+- **Reported and applied before merge:** `AssessmentHistoryDetailView` rebuilt
+  `AssessmentHistoryPresenter` on every body evaluation, re-running ~20 JPEG decodes and ~40 JSON
+  decodes per render for a 5-serve session on the main actor. The live path does this work once in
+  `init`. Now seeded into `@State` from an explicit `init(session:)`, so it is built once per
+  pushed session. Seeding is sound here because the view is a
+  `navigationDestination(for: ServeSession.self)` destination — a different session is a different
+  push and therefore a different view identity, so the held presenter can never go stale against
+  its session. Presenter and subview behavior are unchanged, so
+  `AssessmentHistoryPresenterTests` covers it as-is; `scripts/verify.sh ios` re-run green after
+  the change.
+
+- **First manual attempt failed for an environmental reason, not a code one.** `POST
+  /v1/segment/video` returned `NSURLErrorDomain -1001` with `_kCFStreamErrorCodeKey=60`. Root
+  cause: no process was listening on port 8000 — the backend simply wasn't running.
+  `BackendConfig.baseURL`'s `192.168.86.205` was correct and still matched the Mac's `en0`. The
+  60-second failure was the OS-level TCP connect timeout (`ETIMEDOUT`), which `URLRequest`'s
+  `timeoutInterval` does not govern — so it is *not* evidence that the existing 180 s
+  `proRequestTimeout` is too short. Re-ran with `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+  and the test passed.

@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from app.models import BoundingBox, Detection, Frame, Keypoint, ServePhase, Severity
+from app.models import BoundingBox, Cue, Detection, Frame, Keypoint, ServePhase, Severity
 from app.engine.angles import segment_angle_from_vertical
 from app.engine.rules import compute_metric_value, evaluate_rules, _Rule
 import app.engine.rules as rules_module
@@ -444,3 +444,126 @@ def test_evaluate_rules_passes_detections_to_ball_offset_rule(monkeypatch):
 
     cues_without_detections = evaluate_rules(phases)
     assert cues_without_detections == []
+
+
+# --- Deviation detail on emitted cues (P6c) ---
+
+def test_cue_carries_deviation_detail_for_single_threshold_rule():
+    """A gte/lte rule's cue reports the measured value and only `threshold`."""
+    phases = perfect_phases()
+    bad_trophy = {
+        **PERFECT_TROPHY,
+        # Straight but diagonal → trophy_toss_arm_vertical (lte 45) fires; arm_straight still passes.
+        "left_elbow": {"x": 0.6, "y": 0.75, "confidence": 0.9},
+        "left_wrist": {"x": 0.8, "y": 0.9, "confidence": 0.9},
+    }
+    phases[ServePhase.trophy_pose] = make_frame(bad_trophy)
+
+    cues = evaluate_rules(phases, perfect_detections())
+    assert len(cues) == 1
+    cue = cues[0]
+    assert cue.rule_id == "trophy_toss_arm_vertical"
+    assert cue.metric == "angle_from_vertical"
+    assert cue.joints == ["left_shoulder", "left_wrist"]
+    assert cue.comparison == "lte"
+    assert cue.threshold == 45
+    assert cue.threshold_min is None
+    assert cue.threshold_max is None
+    # The reported value is exactly what the rule was evaluated against.
+    assert cue.measured_value == compute_metric_value(
+        make_frame(bad_trophy), "angle_from_vertical", ["left_shoulder", "left_wrist"]
+    )
+    assert cue.measured_value > cue.threshold  # i.e. it genuinely failed the comparison
+
+
+def test_cue_carries_deviation_detail_for_range_rule():
+    """A range rule's cue reports both bounds and leaves `threshold` unset."""
+    phases = perfect_phases()
+    bad_trophy = {
+        **PERFECT_TROPHY,
+        "right_elbow": {"x": 0.8, "y": 0.4, "confidence": 0.9},  # dropped below the line → 135°
+    }
+    phases[ServePhase.trophy_pose] = make_frame(bad_trophy)
+
+    cues = evaluate_rules(phases, perfect_detections())
+    assert len(cues) == 1
+    cue = cues[0]
+    assert cue.rule_id == "trophy_hitting_elbow_shoulder_line"
+    assert cue.metric == "angle"
+    assert cue.joints == ["left_shoulder", "right_shoulder", "right_elbow"]
+    assert cue.comparison == "range"
+    assert cue.threshold is None
+    assert cue.threshold_min == 155
+    assert cue.threshold_max == 180
+    assert cue.measured_value == compute_metric_value(
+        make_frame(bad_trophy), "angle", ["left_shoulder", "right_shoulder", "right_elbow"]
+    )
+    assert not (cue.threshold_min <= cue.measured_value <= cue.threshold_max)
+
+
+def test_ball_offset_cue_carries_measured_offset():
+    """Detection-derived metrics report their measured value too, not just joint-derived ones."""
+    phases = perfect_phases()
+    detections = {
+        ServePhase.racket_drop: [
+            Detection(
+                label="ball",
+                confidence=0.9,
+                # Ball far too high above the shoulder → offset_y ≈ 0.6, outside [0.28, 0.40].
+                bbox=BoundingBox(x_min=0.43, x_max=0.47, y_min=1.18, y_max=1.22),
+            )
+        ]
+    }
+    cues = evaluate_rules(phases, detections)
+    height_cues = [c for c in cues if c.rule_id == "racket_drop_ball_height"]
+    assert len(height_cues) == 1
+    cue = height_cues[0]
+    assert cue.metric == "ball_offset_y"
+    assert cue.joints == ["left_shoulder"]
+    assert cue.measured_value == pytest.approx(0.6)
+    assert cue.threshold_min == 0.28
+    assert cue.threshold_max == 0.40
+
+
+def test_evaluate_rules_populates_deviation_detail_for_every_rule(monkeypatch):
+    """Guards against a future rule being added without its deviation detail flowing through.
+
+    Drives the real `evaluate_rules` path one rule at a time with a threshold rigged to fail, so
+    deleting any of the deviation kwargs in `rules.py` breaks this test. (Asserting on a
+    hand-built `Cue` would not — it would only be restating `rules.json`.)
+    """
+    frame = make_frame({
+        "left_shoulder":  {"x": 0.4, "y": 0.6, "confidence": 0.9},
+        "left_elbow":     {"x": 0.5, "y": 0.7, "confidence": 0.9},
+        "left_wrist":     {"x": 0.7, "y": 0.9, "confidence": 0.9},
+        "right_shoulder": {"x": 0.6, "y": 0.6, "confidence": 0.9},
+        "right_elbow":    {"x": 0.8, "y": 0.5, "confidence": 0.9},
+        "right_wrist":    {"x": 0.9, "y": 0.3, "confidence": 0.9},
+        "left_hip":       {"x": 0.4, "y": 0.3, "confidence": 0.9},
+        "left_knee":      {"x": 0.55, "y": 0.1, "confidence": 0.9},
+        "nose":           {"x": 0.4, "y": 0.95, "confidence": 0.9},
+    })
+    detections = [_ball_detection(0.35, 0.75, 0.45, 0.85)]
+
+    for rule in list(rules_module._RULES):
+        # Force this rule to fail regardless of its comparison, so a cue is definitely emitted.
+        failing = rule.model_copy(update={
+            "threshold": 1e6 if rule.comparison == "gte" else -1e6,
+            "threshold_min": 1e6,
+            "threshold_max": 1e6 + 1,
+        })
+        monkeypatch.setattr(rules_module, "_RULES", [failing])
+
+        phases = {failing.phase: frame}
+        cues = evaluate_rules(phases, {failing.phase: detections})
+        assert len(cues) == 1, f"rule {rule.id} produced no cue to inspect"
+
+        cue = cues[0]
+        assert cue.rule_id == rule.id
+        assert cue.metric == rule.metric
+        assert cue.joints == rule.joints
+        assert cue.comparison == rule.comparison
+        assert cue.measured_value is not None, f"rule {rule.id} lost its measured value"
+        assert cue.measured_value == compute_metric_value(
+            frame, rule.metric, rule.joints, detections
+        )

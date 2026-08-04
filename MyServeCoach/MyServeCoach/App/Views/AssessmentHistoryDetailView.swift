@@ -1,75 +1,42 @@
 import SwiftUI
 
-/// Read-only replay of a persisted Pro 2D Assessment session — reads `ServeResult`/`CueRecord`
-/// directly from SwiftData rather than a fresh `[AssessmentServeResult]`, which no longer exists
-/// once the session has been saved. No `persist()` call here.
+/// Read-only replay of a persisted Pro 2D Assessment session — reads `ServeResult`/`CueRecord`/
+/// `PhaseFrameRecord` from SwiftData rather than a fresh `[AssessmentServeResult]`, which no
+/// longer exists once the session has been saved. No `persist()` call here.
+///
+/// Renders through the same shared subviews as the live results screen. A session saved before
+/// Phase P6c has no `PhaseFrameRecord`s and no cue deviation detail, so it degrades to the
+/// text-only layout it originally had.
 struct AssessmentHistoryDetailView: View {
-    let session: ServeSession
+    /// Built once and held, not recomputed per body evaluation: a 5-serve session costs ~20 JPEG
+    /// decodes and ~40 JSON decodes, all on the main actor, so rebuilding it on every scroll or
+    /// state change would stutter the screen. The live path does this work once in `init` too.
+    ///
+    /// Seeding `@State` is safe here because the session is fixed for the view's lifetime — the
+    /// caller pushes this via `navigationDestination(for: ServeSession.self)`, so a different
+    /// session is a different push and gets its own view identity (and its own presenter).
+    @State private var presenter: AssessmentHistoryPresenter
 
-    private var sortedResults: [ServeResult] {
-        session.results.sorted { $0.serveIndex < $1.serveIndex }
-    }
-
-    private var totalMajorCount: Int {
-        session.results.flatMap(\.cues).filter { $0.severity == "major" }.count
-    }
-
-    private var totalMinorCount: Int {
-        session.results.flatMap(\.cues).filter { $0.severity == "minor" }.count
+    init(session: ServeSession) {
+        _presenter = State(initialValue: AssessmentHistoryPresenter(session: session))
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                header
-                ForEach(sortedResults) { result in
-                    resultSection(result)
+                AssessmentHeaderView(
+                    serveCount: presenter.serveCount,
+                    majorCount: presenter.majorCount,
+                    minorCount: presenter.minorCount
+                )
+                AssessmentAggregateSection(rows: presenter.aggregatedCues)
+                ForEach(presenter.sections) { section in
+                    AssessmentServeSectionView(section: section)
                 }
             }
             .padding()
         }
         .navigationTitle("Assessment")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("\(session.results.count) serve\(session.results.count == 1 ? "" : "s") analyzed")
-                .font(.title2.weight(.bold))
-            Text("\(totalMajorCount) major · \(totalMinorCount) minor")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func resultSection(_ result: ServeResult) -> some View {
-        let cues = result.cues.sortedByCoachingPriority()
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Serve \(result.serveIndex + 1)")
-                .font(.headline)
-
-            if cues.isEmpty, let summary = result.summary {
-                Label(summary, systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.subheadline)
-            } else {
-                ForEach(cues) { cue in
-                    cueRow(cue)
-                }
-            }
-        }
-        .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    private func cueRow(_ cue: CueRecord) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle()
-                .fill(cue.severity == "major" ? Color.red : Color.orange)
-                .frame(width: 8, height: 8)
-                .padding(.top, 6)
-            Text(cue.message)
-                .font(.subheadline)
-        }
     }
 }
