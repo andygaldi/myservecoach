@@ -103,7 +103,7 @@ The six detected frames map to the following stages of the Kovacs & Ellenbecker 
 
 Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases between key frames, not single poses — they are not detected as discrete frames. Lite mode captures stages 3, 4, and 6 only (trophy pose, racket drop, contact point) and continues to do so permanently. This phase adds Start, Release, and Finish for Pro 2D/3D mode, completing the six-frame model there. Frame detection runs on 2D pose + racket signals and works for both Pro 2D and Pro 3D mode.
 
-**Pro 2D mode coaching (P5–P7)** — the first fully usable Pro experience; iPhone-only, no stereo hardware needed. The coaching engine built in Lite Phases 3–4 is dormant in Lite mode; these phases activate it for Pro 2D mode. **A mode-selection step (Lite / Pro 2D / Pro 3D) at session setup gates which pipeline runs; Pro coaching screens introduced by P6+ are separate from the Lite `PhaseReviewView`/comparison flow and do not modify it.**
+**Pro 2D mode coaching (P5–P7b)** — the first fully usable Pro experience; iPhone-only, no stereo hardware needed. The coaching engine built in Lite Phases 3–4 is dormant in Lite mode; these phases activate it for Pro 2D mode. **A mode-selection step (Lite / Pro 2D / Pro 3D) at session setup gates which pipeline runs; Pro coaching screens introduced by P6+ are separate from the Lite `PhaseReviewView`/comparison flow and do not modify it.**
 
 ### Phase P4b — Segmentation Heuristic Refinement ✅
 
@@ -207,7 +207,21 @@ accordingly (see below). Requires P6; benefits from P6b's cleaner segmentation.
 
 Continuous recording session with automatic per-serve detection (P4) and per-serve analysis. Define a goal catalog; backend returns `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. Deliver audible pass/fail feedback via `AVSpeechSynthesizer` so the player can stay focused on the court between serves. Mac-hosted; becomes field-portable after the P17 Jetson migration.
 
-**Pro 3D Mode Foundation (P8–P9)** — adds a stereo rig and true 3D angles for Mode 3 (Pro 3D). Mac + two USB webcams; no Jetson hardware needed.
+### Phase P7b — Behind-Server Camera Angle (2D)
+
+Pulled forward from P15 and scheduled ahead of P8: proving a *second single-camera angle* end-to-end is a smaller, cheaper test of the "does the pipeline generalize beyond the one view it was calibrated on" question than building a stereo rig, and everything learned here — the view-tagged rule set, the angle-selection step, per-view segmentation calibration — is a prerequisite the P8/P9 3D path would otherwise have to invent under harder conditions.
+
+**Angle selection & plumbing.** Add a recording-angle step (open side / behind server) to Pro 2D session setup, alongside the existing mode selector. Thread the chosen view through `POST /v1/analyze` to `evaluate_rules`, which already takes a `view` parameter and already filters `_RULES` by it (`backend/app/engine/rules.py:112,117`) — but nothing calls it with anything other than the default, because `analyze.py` never passes one. The `_Rule.view` field is deliberately a plain `str`, not a `Literal`, so `"behind_server"` needs no model change.
+
+**Segmentation from behind.** `segment_serves` and `detect_phases` were calibrated on open-side motion across P4/P4b/P6b; the dominant horizontal motion cues change substantially from behind, where the toss and racket travel largely *toward* the camera. Validate against behind-server clips and extend `backend/tools/segmentation_ground_truth.json` with hand-labeled behind-server segments, re-running `segmentation_report.py` the way P6b did. Per-view heuristic constants if the shared ones can't cover both.
+
+**Behind-server rule set.** Import the existing behind-server footage into `backend/tools/calibration_data/behind_server/` and re-run `analyze_angles.py` to derive thresholds for this view, adding `"view": "behind_server"` rules to `rules.json` alongside the nine open-side rules, which stay untouched. Expect the rule *set* to differ, not just its thresholds: some open-side rules are meaningless or inverted from behind (`racket_drop_ball_front` measures `ball_offset_x`, which reads as depth rather than in-front-of-body from this view), while behind-server exposes biomechanics the open side cannot see — lateral toss placement and shoulder-hip separation being the obvious candidates. Rules that genuinely hold in both views are duplicated per view rather than shared, so each view's thresholds stay independently calibratable.
+
+**Results & overlay reuse.** The P6c overlay renderer, aggregate cue view, and history replay are view-agnostic — they draw whatever joints a cue names — so this phase should add no new results-screen UI beyond surfacing which angle produced the session. If the overlay needs per-view special-casing, that is a signal the cue data model is wrong, not that the renderer needs a branch.
+
+Requires P6c (the cue/overlay surface these rules render through) and P6b (segmentation baseline). Does not require P7 — the goal engine is orthogonal — but is scheduled after it to keep the Pro 2D block contiguous. **Lite mode is untouched and remains open-side only.**
+
+**Pro 3D Mode Foundation (P8–P9)** — adds a stereo rig and true 3D angles for Mode 3 (Pro 3D). Mac + two USB webcams; no Jetson hardware needed. Benefits from P7b, which establishes per-view rule sets and angle selection before a second physical camera is introduced.
 
 ### Phase P8 — Stereo Camera Rig & Calibration
 
@@ -243,9 +257,9 @@ Pre-recording skeleton overlay on the live iPhone feed with a joint-confidence w
 
 Serve-type selection (flat, slice, kick) before recording. Backend applies serve-type-specific rule thresholds. `rules.json` restructured for per-type variants alongside the per-mode (Pro 2D / Pro 3D) variants introduced in P10. Pro-mode only — Lite mode has no rule thresholds to vary.
 
-### Phase P15 — Multi-Angle Support
+### Phase P15 — Closed-Side Camera Angle
 
-Pipeline extended to support behind-server and closed-side recording angles. Angle-selection step added to session setup; angle-specific segmentation heuristics and rule sets. Note: the stereo rig added in P8 already provides a second view for 3D triangulation — this phase adds the open-side / behind-server / closed-side *analysis angle* variants for single-camera sessions.
+Adds the closed-side recording angle as a third single-camera view, following the per-view pattern established in P7b: a `"view": "closed_side"` rule set in `rules.json`, closed-side entries in `segmentation_ground_truth.json`, and a third option on the angle selector. (Behind-server support and the angle-selection step itself were delivered earlier in Phase P7b, which also proved the per-view plumbing this phase reuses — so this phase should be substantially smaller than P7b was.) Note: the stereo rig added in P8 provides a second *simultaneous* view for 3D triangulation; this phase is about single-camera analysis-angle variants, which remain useful in Pro 2D mode without any stereo hardware.
 
 ### Phase P16 — LLM Coaching Cues
 
