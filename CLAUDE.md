@@ -49,11 +49,12 @@ Print Vision results to the console early on for pose debugging.
 
 ## Loop-based Development
 
-Features are built using a three-skill loop:
+Features are built using a four-skill loop:
 
 1. **`/spec`** — find the next `⬜ Pending` phase on `specs/roadmap.md`, create a `feature/` branch, and generate the phase triad (`phases/YYYY-MM-DD-<name>/{requirements,plan,validation}.md`) via guided questions before writing any file.
-2. **`/phase`** — implement the triad task-group by task-group, self-verifying after each group via `scripts/verify.sh <surface>`, iterating on failures (3-retry budget), then running a three-agent deep review (correctness / design / spec compliance) before stopping for human review.
-3. **`/merge`** — mark the phase `✅ Complete` in the roadmap, commit, open a PR into `develop`, squash-merge, and delete the branch.
+2. **`/phase`** — implement the triad task-group by task-group, self-verifying after each group via `scripts/verify.sh <surface>`, iterating on failures (3-retry budget), then stopping with a task-group summary.
+3. **`/phase-review`** — run the three-agent deep review (correctness / design / spec compliance) against the branch diff and the triad, then stop for human review with the synthesized findings. Separate from `/phase` so a review can be re-run after fixes without re-running the implementation loop.
+4. **`/merge`** — mark the phase `✅ Complete` in the roadmap, commit, open a PR into `develop`, squash-merge, and delete the branch.
 
 After `/merge`, `develop` is clean and ready for the next `/spec`.
 

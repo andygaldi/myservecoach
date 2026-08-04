@@ -1,19 +1,19 @@
 ---
 name: merge
-description: Close out a completed phase — mark it done in the roadmap, commit, open a PR into develop, squash-merge, and delete the branch. The final step of the /spec → /phase → /merge loop.
+description: Close out a completed phase — mark it done in the roadmap, commit, open a PR into develop, squash-merge, and delete the branch. The final step of the /spec → /phase → /phase-review → /merge loop.
 ---
 
 # /merge — Complete and Merge
 
 Closes out the current feature branch after a phase has been implemented and reviewed.
-This is the final step of the loop: `/spec → review → /phase → review → /merge`.
+This is the final step of the loop: `/spec → /phase → /phase-review → /merge`.
 After it runs, `develop` is clean and ready for the next `/spec`.
 
 ## When to run
 
 Run `/merge` only after:
 - All task groups in `plan.md` are implemented and `scripts/verify.sh` is green
-- You have reviewed the `/phase` deep-review findings and are satisfied
+- You have run `/phase-review` and are satisfied with how its findings were addressed
 - You have checked off the `validation.md` checklist
 
 ## Procedure
