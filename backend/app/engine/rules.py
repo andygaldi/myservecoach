@@ -129,5 +129,12 @@ def evaluate_rules(
                 phase=rule.phase,
                 message=rule.message,
                 severity=rule.severity,
+                metric=rule.metric,
+                joints=rule.joints,
+                measured_value=value,
+                comparison=rule.comparison,
+                threshold=rule.threshold,
+                threshold_min=rule.threshold_min,
+                threshold_max=rule.threshold_max,
             ))
     return cues

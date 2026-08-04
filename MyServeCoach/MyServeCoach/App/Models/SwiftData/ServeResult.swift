@@ -7,6 +7,7 @@ final class ServeResult {
     var serveIndex: Int = 0
     var summary: String?
     @Relationship(deleteRule: .cascade) var cues: [CueRecord] = []
+    @Relationship(deleteRule: .cascade) var phaseFrames: [PhaseFrameRecord] = []
     var session: ServeSession?
 
     init(serveIndex: Int, summary: String?) {
