@@ -203,6 +203,30 @@ ideal vertical for `trophy_toss_arm_vertical`); no overlay renderer exists in iO
 delivers P13's "skeleton on results-screen keyframes" ahead of schedule — P13 is narrowed
 accordingly (see below). Requires P6; benefits from P6b's cleaner segmentation.
 
+### Phase P6d — Serve Count Robustness
+
+Replaces gap-detection with event-counting as the source of the serve count. Scheduled ahead of P7 because P7's continuous multi-serve capture depends on the count being right more directly than anything else on the roadmap, and ahead of P7b so a second camera view isn't calibrated on top of a miscount.
+
+**The defect.** `segment_serves` infers the count from *absences* — sustained low-velocity gaps between serves. `_frame_velocity` divides displacement by `dt`, and `dt` is exactly `stride/fps` (fixed `DEFAULT_STRIDE = 2`, timestamps synthesized as `idx/fps` in `video_sampler.py`). The motion signal is genuinely fps-invariant; the keypoint *noise* is not. Measured on `ag_three_serves.MOV` — the 30fps clip every constant was calibrated against — by inferring pose once and subsampling so only `dt` varies:
+
+| stride | dt | segments detected (true: 3) | p10 velocity |
+|---|---|---|---|
+| 1 | 0.033s | **1** | 0.0501 |
+| 2 | 0.067s | 3 ✓ | 0.0422 |
+| 3 | 0.100s | 4 | 0.0400 |
+| 4 | 0.133s | 3 ✓ | 0.0368 |
+| 6 | 0.200s | 4 | 0.0383 |
+
+Noise scales as roughly `dt^-0.22` (temporally correlated, not white), so 60fps costs only ~1.2× — but the margin was never there: the 10th-percentile velocity exceeds `LOW_MOTION_VELOCITY_THRESHOLD = 0.03` at *every* stride, so rest detection survives on the bottom decile of the distribution. Counts are non-monotonic in `dt`, meaning stride 2 landing on the right answer is closer to coincidence than calibration. This is the root cause behind P6's finding that 60fps/4K clips return 1 serve regardless of true count — which P6 addressed by constraining the input (720×1280@30fps capture lock, import re-encode) rather than fixing the algorithm.
+
+**Why it survived P4/P4b/P6/P6b.** The ground-truth corpus cannot observe it. `ag_three_serves.MOV` is the only multi-serve clip and it is 30fps; all five ~57–60fps clips are single-serve, where under-segmentation is invisible. `test_segmentation_is_fps_invariant` passes because its fixture emits an identical `x` every frame — rest velocity is exactly 0.0, so noise-driven failure is unobservable by construction.
+
+**The approach.** Count a positive event instead: hitting-wrist height peaks, one per serve, via a body-relative floor (`neck + k·|neck − pelvis|`) plus greedy non-max suppression with a minimum temporal separation. Pose is the reliable signal — 100% person detection, 0.775 mean keypoint confidence — whereas ball detection is present in only **10.8%** of frames and is documented to vanish *at the contact instant* to motion blur, so a ball-based contact counter would depend on the weakest signal in the system exactly when it fails. Peak count becomes authoritative; velocity is demoted to *placing* boundaries rather than deciding how many there are. The hitting-side restriction is load-bearing — it is what rejects an aborted toss-and-catch, where the toss arm rises but the hitting arm does not.
+
+**Corpus first.** New footage is a blocking prerequisite: an fps matrix (2/3/5 serves at both 60fps and 30fps), a held-out clip reserved from all tuning, and negative cases — toss-and-catch, elaborate ball-bounce routine, idle-only, shadow swing. Serve counts are the headline metric and need no timestamps. `segmentation_report.py` gains a `--score` mode (it computes no metrics today) and a keypoint-caching sweep tool makes parameter search instant rather than minutes of CPU per question.
+
+**Escalates the handedness seam.** `HANDEDNESS` (`phases.py:13`) hardcodes a right-handed server. Today a wrong hitting side produces wrong cues; once the count derives from the hitting wrist it produces the wrong *serve count* — so P7b's handedness note is promoted from known limitation to prerequisite. Requires P6b. **Lite mode is untouched** — `segment_serves` is Pro-path only.
+
 ### Phase P7 — Goal Library & Set Goal Session Mode (2D)
 
 Continuous recording session with automatic per-serve detection (P4) and per-serve analysis. Define a goal catalog; backend returns `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. Deliver audible pass/fail feedback via `AVSpeechSynthesizer` so the player can stay focused on the court between serves. Mac-hosted; becomes field-portable after the P17 Jetson migration.
@@ -231,7 +255,7 @@ Spend calibration effort in that order. Extend `backend/tools/segmentation_groun
 
 **Results & overlay reuse.** The P6c overlay renderer, aggregate cue view, and history replay are view-agnostic — they draw whatever joints a cue names — so this phase should add no new results-screen UI beyond surfacing which angle produced the session. If the overlay needs per-view special-casing, that is a signal the cue data model is wrong, not that the renderer needs a branch.
 
-**Decide the handedness seam while you're in here.** `HANDEDNESS` (`backend/app/engine/phases.py:13`) is a module-level constant hardcoding a right-handed server — `{"hitting": "right", "toss": "left"}`. It is orthogonal to view (joint names are anatomical, so they don't flip with the camera), but it is the same *shape* of problem: a per-session fact frozen into a global. This phase threads `view` through every call site that would also carry handedness, so it is the cheap moment to decide whether both belong in one small per-session context rather than leaving two different mechanisms for the same kind of variation. Left-handed support is not in this phase's scope — only the seam that would make it possible later.
+**Handedness seam — check what P6d left.** `HANDEDNESS` (`backend/app/engine/phases.py:13`) is a module-level constant hardcoding a right-handed server. It is orthogonal to view (joint names are anatomical, so they don't flip with the camera), but it is the same *shape* of problem: a per-session fact frozen into a global. P6d escalated this from a cue-quality issue to a count-correctness one and either resolved the seam or explicitly declared left-handed servers unsupported — confirm which before starting. If the seam is still open, this phase threads `view` through every call site that would also carry handedness, so it remains the cheap moment to put both in one per-session context rather than leaving two mechanisms for the same kind of variation.
 
 **Sequencing.** Left/right sanity check → segmentation and phase detection → rules. A failure at the first step invalidates the other two, and thresholds calibrated on top of mis-detected phases are worse than no thresholds at all.
 
