@@ -49,11 +49,12 @@ Print Vision results to the console early on for pose debugging.
 
 ## Loop-based Development
 
-Features are built using a three-skill loop:
+Features are built using a four-skill loop:
 
 1. **`/spec`** — find the next `⬜ Pending` phase on `specs/roadmap.md`, create a `feature/` branch, and generate the phase triad (`phases/YYYY-MM-DD-<name>/{requirements,plan,validation}.md`) via guided questions before writing any file.
-2. **`/phase`** — implement the triad task-group by task-group, self-verifying after each group via `scripts/verify.sh <surface>`, iterating on failures (3-retry budget), then running a three-agent deep review (correctness / design / spec compliance) before stopping for human review.
-3. **`/merge`** — mark the phase `✅ Complete` in the roadmap, commit, open a PR into `develop`, squash-merge, and delete the branch.
+2. **`/phase`** — implement the triad task-group by task-group, self-verifying after each group via `scripts/verify.sh <surface>`, iterating on failures (3-retry budget), then stopping with a task-group summary.
+3. **`/phase-review`** — run the three-agent deep review (correctness / design / spec compliance) against the branch diff and the triad, then stop for human review with the synthesized findings. Separate from `/phase` so a review can be re-run after fixes without re-running the implementation loop.
+4. **`/merge`** — mark the phase `✅ Complete` in the roadmap, commit, open a PR into `develop`, squash-merge, and delete the branch.
 
 After `/merge`, `develop` is clean and ready for the next `/spec`.
 
@@ -69,8 +70,6 @@ After `/merge`, `develop` is clean and ready for the next `/spec`.
 
 PRs merge into `develop` via squash & merge. Stable releases are tagged (`v0.x.x`) on `main`.
 
-Commit messages reference the Linear issue ID where applicable: `[MYS-XXXX] description`.
+## Planning & Issue Tracking
 
-## Issue Tracking
-
-Issues are managed in **Linear**. Issue IDs follow the pattern `MYS-XXXX`. The project roadmap and epics (video capture MVP, pose extraction, backend serve analysis, results UI) need to be defined.
+There is no external issue tracker. Planned work lives in `specs/roadmap.md` as numbered phases; each phase's decisions, deferrals, and known limitations are recorded in its `phases/<name>/validation.md` run notes. Anything worth not forgetting belongs in one of those two places.

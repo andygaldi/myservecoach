@@ -29,9 +29,10 @@ class _Rule(BaseModel):
     threshold_max: float | None = None
     severity: Severity
     message: str
-    # Not a Literal like `metric`/`comparison`: P15 will add a "behind_server" view without
-    # needing to touch this model again. A typo'd view in rules.json loads as a distinct,
-    # permanently-unmatched value rather than failing validation at import.
+    # Not a Literal like `metric`/`comparison`: P7b adds a "behind_server" view (P15, a
+    # "closed_side" one) without needing to touch this model again. A typo'd view in
+    # rules.json loads as a distinct, permanently-unmatched value rather than failing
+    # validation at import.
     view: str = "open_side"
 
     @model_validator(mode="after")

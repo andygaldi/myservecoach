@@ -103,7 +103,7 @@ The six detected frames map to the following stages of the Kovacs & Ellenbecker 
 
 Stages 5 (Acceleration) and 7 (Deceleration) are continuous motion phases between key frames, not single poses — they are not detected as discrete frames. Lite mode captures stages 3, 4, and 6 only (trophy pose, racket drop, contact point) and continues to do so permanently. This phase adds Start, Release, and Finish for Pro 2D/3D mode, completing the six-frame model there. Frame detection runs on 2D pose + racket signals and works for both Pro 2D and Pro 3D mode.
 
-**Pro 2D mode coaching (P5–P7)** — the first fully usable Pro experience; iPhone-only, no stereo hardware needed. The coaching engine built in Lite Phases 3–4 is dormant in Lite mode; these phases activate it for Pro 2D mode. **A mode-selection step (Lite / Pro 2D / Pro 3D) at session setup gates which pipeline runs; Pro coaching screens introduced by P6+ are separate from the Lite `PhaseReviewView`/comparison flow and do not modify it.**
+**Pro 2D mode coaching (P5–P7b)** — the first fully usable Pro experience; iPhone-only, no stereo hardware needed. The coaching engine built in Lite Phases 3–4 is dormant in Lite mode; these phases activate it for Pro 2D mode. **A mode-selection step (Lite / Pro 2D / Pro 3D) at session setup gates which pipeline runs; Pro coaching screens introduced by P6+ are separate from the Lite `PhaseReviewView`/comparison flow and do not modify it.**
 
 ### Phase P4b — Segmentation Heuristic Refinement ✅
 
@@ -203,11 +203,65 @@ ideal vertical for `trophy_toss_arm_vertical`); no overlay renderer exists in iO
 delivers P13's "skeleton on results-screen keyframes" ahead of schedule — P13 is narrowed
 accordingly (see below). Requires P6; benefits from P6b's cleaner segmentation.
 
+### Phase P6d — Serve Count Robustness
+
+Replaces gap-detection with event-counting as the source of the serve count. Scheduled ahead of P7 because P7's continuous multi-serve capture depends on the count being right more directly than anything else on the roadmap, and ahead of P7b so a second camera view isn't calibrated on top of a miscount.
+
+**The defect.** `segment_serves` infers the count from *absences* — sustained low-velocity gaps between serves. `_frame_velocity` divides displacement by `dt`, and `dt` is exactly `stride/fps` (fixed `DEFAULT_STRIDE = 2`, timestamps synthesized as `idx/fps` in `video_sampler.py`). The motion signal is genuinely fps-invariant; the keypoint *noise* is not. Measured on `ag_three_serves.MOV` — the 30fps clip every constant was calibrated against — by inferring pose once and subsampling so only `dt` varies:
+
+| stride | dt | segments detected (true: 3) | p10 velocity |
+|---|---|---|---|
+| 1 | 0.033s | **1** | 0.0501 |
+| 2 | 0.067s | 3 ✓ | 0.0422 |
+| 3 | 0.100s | 4 | 0.0400 |
+| 4 | 0.133s | 3 ✓ | 0.0368 |
+| 6 | 0.200s | 4 | 0.0383 |
+
+Noise scales as roughly `dt^-0.22` (temporally correlated, not white), so 60fps costs only ~1.2× — but the margin was never there: the 10th-percentile velocity exceeds `LOW_MOTION_VELOCITY_THRESHOLD = 0.03` at *every* stride, so rest detection survives on the bottom decile of the distribution. Counts are non-monotonic in `dt`, meaning stride 2 landing on the right answer is closer to coincidence than calibration. This is the root cause behind P6's finding that 60fps/4K clips return 1 serve regardless of true count — which P6 addressed by constraining the input (720×1280@30fps capture lock, import re-encode) rather than fixing the algorithm.
+
+**Why it survived P4/P4b/P6/P6b.** The ground-truth corpus cannot observe it. `ag_three_serves.MOV` is the only multi-serve clip and it is 30fps; all five ~57–60fps clips are single-serve, where under-segmentation is invisible. `test_segmentation_is_fps_invariant` passes because its fixture emits an identical `x` every frame — rest velocity is exactly 0.0, so noise-driven failure is unobservable by construction.
+
+**The approach.** Count a positive event instead: hitting-wrist height peaks, one per serve, via a body-relative floor (`neck + k·|neck − pelvis|`) plus greedy non-max suppression with a minimum temporal separation. Pose is the reliable signal — 100% person detection, 0.775 mean keypoint confidence — whereas ball detection is present in only **10.8%** of frames and is documented to vanish *at the contact instant* to motion blur, so a ball-based contact counter would depend on the weakest signal in the system exactly when it fails. Peak count becomes authoritative; velocity is demoted to *placing* boundaries rather than deciding how many there are. The hitting-side restriction is load-bearing — it is what rejects an aborted toss-and-catch, where the toss arm rises but the hitting arm does not.
+
+**Corpus first.** New footage is a blocking prerequisite: an fps matrix (2/3/5 serves at both 60fps and 30fps), a held-out clip reserved from all tuning, and negative cases — toss-and-catch, elaborate ball-bounce routine, idle-only, shadow swing. Serve counts are the headline metric and need no timestamps. `segmentation_report.py` gains a `--score` mode (it computes no metrics today) and a keypoint-caching sweep tool makes parameter search instant rather than minutes of CPU per question.
+
+**Escalates the handedness seam.** `HANDEDNESS` (`phases.py:13`) hardcodes a right-handed server. Today a wrong hitting side produces wrong cues; once the count derives from the hitting wrist it produces the wrong *serve count* — so P7b's handedness note is promoted from known limitation to prerequisite. Requires P6b. **Lite mode is untouched** — `segment_serves` is Pro-path only.
+
 ### Phase P7 — Goal Library & Set Goal Session Mode (2D)
 
 Continuous recording session with automatic per-serve detection (P4) and per-serve analysis. Define a goal catalog; backend returns `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. Deliver audible pass/fail feedback via `AVSpeechSynthesizer` so the player can stay focused on the court between serves. Mac-hosted; becomes field-portable after the P17 Jetson migration.
 
-**Pro 3D Mode Foundation (P8–P9)** — adds a stereo rig and true 3D angles for Mode 3 (Pro 3D). Mac + two USB webcams; no Jetson hardware needed.
+### Phase P7b — Behind-Server Camera Angle (2D)
+
+Pulled forward from P15 and scheduled ahead of P8: proving a *second single-camera angle* end-to-end is a smaller, cheaper test of the "does the pipeline generalize beyond the one view it was calibrated on" question than building a stereo rig, and everything learned here — the view-tagged rule set, the angle-selection step, per-view segmentation calibration — is a prerequisite the P8/P9 3D path would otherwise have to invent under harder conditions.
+
+**Step zero — confirm the pose model can tell left from right.** Every rule and every phase detector keys off anatomical joint names (`right_wrist`, `left_shoulder`). Those names are anatomical rather than image-relative, so they *should* be view-invariant — but pose models are measurably weaker at left/right disambiguation from behind, where the face and front-of-body cues are gone. A model that swaps sides on some frames makes everything downstream quietly wrong rather than absent, which is far harder to debug than a missing keypoint. Run the existing `/v1/pose` over the behind-server footage and check left/right consistency across frames **before** building anything. If it is unreliable, this is a model problem, not a threshold problem, and the phase's shape changes completely — so this gates the two task groups below rather than running alongside them.
+
+**Segmentation from behind.** `segment_serves` and `detect_phases` were calibrated on open-side motion across P4/P4b/P6b; the dominant horizontal motion cues change substantially from behind, where the toss and racket travel largely *toward* the camera. Note the asymmetry to close: `evaluate_rules` got a `view` parameter, but `detect_phases` (`backend/app/engine/phases.py:240`) takes only `(frames, detections)` and every threshold it uses is a module-level constant. Assume per-view constants are needed rather than treating them as a fallback. The five detectors are not equally exposed — vertical comparisons survive a camera move, depth-axis motion does not:
+
+| Detector | Signal | Behind-server risk |
+|---|---|---|
+| Release (`phases.py:254`) | `ball_y > toss_wrist_y > toss_shoulder_y` | **Low** — pure vertical comparisons |
+| Trophy (`phases.py:292`) | hip height (vertical) + toss-arm elbow angle | Moderate — half the signal is robust |
+| Contact (`_find_contact_idx`) | wrist height + racket-ball *image* distance | Moderate — image-close can be depth-far from behind, so more false peaks |
+| **Racket drop (`phases.py:336`)** | `forearm_angle_from_vertical` | **Highest** — the forearm's swing "down and behind the body" is exactly the depth axis from this view, so it foreshortens hardest. Already the hardest phase to pin on the open side (P6b set `RACKET_DROP_SMOOTHING_WINDOW = 1` because its window is 1–4 frames on fast swings). |
+| Finish (`phases.py:354`) | knee flexion, hip→knee→ankle | Moderate — foreshortened |
+
+Spend calibration effort in that order. Extend `backend/tools/segmentation_ground_truth.json` with hand-labeled behind-server segments and re-run `segmentation_report.py` the way P6b did.
+
+**Angle selection & plumbing.** Add a recording-angle step (open side / behind server) to Pro 2D session setup, alongside the existing mode selector. Angle is a separate axis from mode, so it belongs in its own `RecordingAngle` type and its own persisted field rather than as extra `SessionMode` cases — otherwise P15's closed-side variant turns a two-case enum into six. Thread the chosen view through `POST /v1/analyze` to `evaluate_rules`, which already takes a `view` parameter and already filters `_RULES` by it (`backend/app/engine/rules.py:112,117`) — but nothing calls it with anything other than the default, because `analyze.py` never passes one. The `_Rule.view` field is deliberately a plain `str`, not a `Literal`, so `"behind_server"` needs no model change.
+
+**Behind-server rule set.** Import the existing behind-server footage into `backend/tools/calibration_data/behind_server/` and re-run `analyze_angles.py` to derive thresholds for this view, adding `"view": "behind_server"` rules to `rules.json` alongside the nine open-side rules, which stay untouched. Expect the rule *set* to differ, not just its thresholds: some open-side rules are meaningless or inverted from behind (`racket_drop_ball_front` measures `ball_offset_x`, which reads as depth rather than in-front-of-body from this view), while behind-server exposes biomechanics the open side cannot see — lateral toss placement and shoulder-hip separation being the obvious candidates. Rules that genuinely hold in both views are duplicated per view rather than shared, so each view's thresholds stay independently calibratable.
+
+**Results & overlay reuse.** The P6c overlay renderer, aggregate cue view, and history replay are view-agnostic — they draw whatever joints a cue names — so this phase should add no new results-screen UI beyond surfacing which angle produced the session. If the overlay needs per-view special-casing, that is a signal the cue data model is wrong, not that the renderer needs a branch.
+
+**Handedness seam — check what P6d left.** `HANDEDNESS` (`backend/app/engine/phases.py:13`) is a module-level constant hardcoding a right-handed server. It is orthogonal to view (joint names are anatomical, so they don't flip with the camera), but it is the same *shape* of problem: a per-session fact frozen into a global. P6d escalated this from a cue-quality issue to a count-correctness one and either resolved the seam or explicitly declared left-handed servers unsupported — confirm which before starting. If the seam is still open, this phase threads `view` through every call site that would also carry handedness, so it remains the cheap moment to put both in one per-session context rather than leaving two mechanisms for the same kind of variation.
+
+**Sequencing.** Left/right sanity check → segmentation and phase detection → rules. A failure at the first step invalidates the other two, and thresholds calibrated on top of mis-detected phases are worse than no thresholds at all.
+
+Requires P6c (the cue/overlay surface these rules render through) and P6b (segmentation baseline). Does not require P7 — the goal engine is orthogonal — but is scheduled after it to keep the Pro 2D block contiguous. **Lite mode is untouched and remains open-side only.**
+
+**Pro 3D Mode Foundation (P8–P9)** — adds a stereo rig and true 3D angles for Mode 3 (Pro 3D). Mac + two USB webcams; no Jetson hardware needed. Benefits from P7b, which establishes per-view rule sets and angle selection before a second physical camera is introduced.
 
 ### Phase P8 — Stereo Camera Rig & Calibration
 
@@ -243,9 +297,9 @@ Pre-recording skeleton overlay on the live iPhone feed with a joint-confidence w
 
 Serve-type selection (flat, slice, kick) before recording. Backend applies serve-type-specific rule thresholds. `rules.json` restructured for per-type variants alongside the per-mode (Pro 2D / Pro 3D) variants introduced in P10. Pro-mode only — Lite mode has no rule thresholds to vary.
 
-### Phase P15 — Multi-Angle Support
+### Phase P15 — Closed-Side Camera Angle
 
-Pipeline extended to support behind-server and closed-side recording angles. Angle-selection step added to session setup; angle-specific segmentation heuristics and rule sets. Note: the stereo rig added in P8 already provides a second view for 3D triangulation — this phase adds the open-side / behind-server / closed-side *analysis angle* variants for single-camera sessions.
+Adds the closed-side recording angle as a third single-camera view, following the per-view pattern established in P7b: a `"view": "closed_side"` rule set in `rules.json`, closed-side entries in `segmentation_ground_truth.json`, and a third option on the angle selector. (Behind-server support and the angle-selection step itself were delivered earlier in Phase P7b, which also proved the per-view plumbing this phase reuses — so this phase should be substantially smaller than P7b was.) Note: the stereo rig added in P8 provides a second *simultaneous* view for 3D triangulation; this phase is about single-camera analysis-angle variants, which remain useful in Pro 2D mode without any stereo hardware.
 
 ### Phase P16 — LLM Coaching Cues
 
