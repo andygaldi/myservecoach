@@ -11,20 +11,23 @@ _CLEAN_SERVE_SUMMARY = "No major issues detected — good serve!"
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     phase_frames = detect_phases(request.frames, request.detections)
-    ts_to_detections = {
-        frame.timestamp: dets for frame, dets in zip(request.frames, request.detections or [])
+
+    # Both joins below key on object identity rather than timestamp: detect_phases returns the
+    # very Frame objects it was handed, and two frames sharing a timestamp would otherwise
+    # collide — the later one silently winning for both, so a phase could be scored against a
+    # different frame's ball position.
+    frame_indices = {id(frame): i for i, frame in enumerate(request.frames)}
+    id_to_detections = {
+        id(frame): dets for frame, dets in zip(request.frames, request.detections or [])
     }
     phase_detections = {
-        phase: ts_to_detections.get(frame.timestamp)
+        phase: id_to_detections.get(id(frame))
         for phase, frame in phase_frames.items()
         if frame is not None
     }
     cues = evaluate_rules(phase_frames, phase_detections)
 
-    # Where each detected phase landed, in ServePhase declaration order. Indexed by object
-    # identity rather than timestamp: detect_phases returns the very frames it was handed, and
-    # two frames sharing a timestamp would otherwise collide.
-    frame_indices = {id(frame): i for i, frame in enumerate(request.frames)}
+    # Where each detected phase landed, in ServePhase declaration order.
     phases = [
         PhaseDetection(phase=phase, frame_index=index, timestamp=frame.timestamp)
         for phase in ServePhase

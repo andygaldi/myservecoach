@@ -231,6 +231,51 @@ async def test_ball_offset_rule_does_not_fire_without_detections(transport, monk
     assert body.cues == []
 
 
+@pytest.mark.asyncio
+async def test_duplicate_timestamps_join_detections_by_identity(transport, monkeypatch):
+    """Two frames sharing a timestamp each keep their own detections.
+
+    /analyze joins detections to phase frames by `id(frame)`. Keying that join on
+    `frame.timestamp` instead lets the later of two same-timestamped frames silently win for
+    both, scoring a phase against a different frame's ball position. Rigged so the two
+    orderings disagree: contact resolves to frame 0 (higher wrist), while a timestamp-keyed
+    dict would hand it frame 1's ball.
+    """
+    monkeypatch.setattr(rules_module, "_RULES", [BALL_OFFSET_RULE])
+    frames = [
+        {
+            "timestamp": 0.0,
+            "keypoints": {
+                "right_wrist":   {"x": 0.5, "y": 0.9, "confidence": 0.9},
+                "left_shoulder": {"x": 0.4, "y": 0.6, "confidence": 0.9},
+            },
+        },
+        {
+            "timestamp": 0.0,  # deliberate collision with frame 0
+            "keypoints": {
+                "right_wrist":   {"x": 0.5, "y": 0.5, "confidence": 0.9},
+                "left_shoulder": {"x": 0.4, "y": 0.6, "confidence": 0.9},
+            },
+        },
+    ]
+    detections = [
+        [{"label": "ball", "confidence": 0.9, "bbox": {"x_min": 0.35, "y_min": 0.80, "x_max": 0.45, "y_max": 0.90}}],
+        [{"label": "ball", "confidence": 0.9, "bbox": {"x_min": 0.35, "y_min": 0.05, "x_max": 0.45, "y_max": 0.15}}],
+    ]
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/analyze", json={"frames": frames, "detections": detections}
+        )
+    assert response.status_code == 200
+    body = AnalyzeResponse.model_validate(response.json())
+
+    assert [p.frame_index for p in body.phases if p.phase == ServePhase.contact] == [0]
+    assert len(body.cues) == 1
+    # frame 0's ball (center y 0.85) minus left_shoulder y 0.6. The timestamp-keyed join would
+    # yield frame 1's ball instead: 0.10 - 0.6 = -0.50.
+    assert body.cues[0].measured_value == pytest.approx(0.25)
+
+
 # --- Detected-phase timing (P6c) ---
 
 
