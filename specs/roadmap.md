@@ -231,6 +231,8 @@ Spend calibration effort in that order. Extend `backend/tools/segmentation_groun
 
 **Results & overlay reuse.** The P6c overlay renderer, aggregate cue view, and history replay are view-agnostic — they draw whatever joints a cue names — so this phase should add no new results-screen UI beyond surfacing which angle produced the session. If the overlay needs per-view special-casing, that is a signal the cue data model is wrong, not that the renderer needs a branch.
 
+**Decide the handedness seam while you're in here.** `HANDEDNESS` (`backend/app/engine/phases.py:13`) is a module-level constant hardcoding a right-handed server — `{"hitting": "right", "toss": "left"}`. It is orthogonal to view (joint names are anatomical, so they don't flip with the camera), but it is the same *shape* of problem: a per-session fact frozen into a global. This phase threads `view` through every call site that would also carry handedness, so it is the cheap moment to decide whether both belong in one small per-session context rather than leaving two different mechanisms for the same kind of variation. Left-handed support is not in this phase's scope — only the seam that would make it possible later.
+
 **Sequencing.** Left/right sanity check → segmentation and phase detection → rules. A failure at the first step invalidates the other two, and thresholds calibrated on top of mis-detected phases are worse than no thresholds at all.
 
 Requires P6c (the cue/overlay surface these rules render through) and P6b (segmentation baseline). Does not require P7 — the goal engine is orthogonal — but is scheduled after it to keep the Pro 2D block contiguous. **Lite mode is untouched and remains open-side only.**
