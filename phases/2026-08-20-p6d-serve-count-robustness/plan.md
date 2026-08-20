@@ -12,46 +12,55 @@
 ## Group 1 — Corpus Placement & Count Ground Truth (surface: `backend`, data)
 
 1. Create `backend/tools/calibration_data/serve_segmentation_corpus/`.
-2. `git mv` the four existing candidate clips into the convention:
+2. `git mv` the four existing candidate clips into the convention
+   (`{view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV`):
    ```
-   git mv backend/tools/calibration_data/test_2_serve_clip_c.MOV backend/tools/calibration_data/serve_segmentation_corpus/2serve_30fps.MOV
-   git mv backend/tools/calibration_data/test_2_serve_clip_a.MOV backend/tools/calibration_data/serve_segmentation_corpus/2serve_60fps_a.MOV
-   git mv backend/tools/calibration_data/test_2_serve_clip_b.MOV backend/tools/calibration_data/serve_segmentation_corpus/2serve_60fps_b.MOV
-   git mv backend/tools/calibration_data/new_3_serve_clip.MOV backend/tools/calibration_data/serve_segmentation_corpus/3serve_60fps.MOV
+   git mv backend/tools/calibration_data/test_2_serve_clip_c.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_ag.MOV
+   git mv backend/tools/calibration_data/test_2_serve_clip_a.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_ag_a.MOV
+   git mv backend/tools/calibration_data/test_2_serve_clip_b.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_ag_b.MOV
+   git mv backend/tools/calibration_data/new_3_serve_clip.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_ag.MOV
    ```
    (These paths are gitignored — `git mv` will report the rename but the files themselves are not
    tracked; this step is a plain filesystem rename that stays consistent with git's view either
-   way.) Leave `calibration_data/ag_three_serves.MOV` untouched.
-3. Confirm with the user that the remaining corpus files are placed at:
-   `serve_segmentation_corpus/5serve_30fps.MOV`, `5serve_60fps.MOV`,
-   `heldout_<N>serve_<fps>fps.MOV` (record the actual filename used), `negative_toss_catch.MOV`,
-   `negative_ball_bounce_routine.MOV`, `negative_idle_only.MOV`, `negative_shadow_swing.MOV`. If
-   any is missing, note it and continue with Groups 2–5 (which don't need the files present) —
+   way.) Leave `calibration_data/ag_three_serves.MOV` untouched — the naming convention applies
+   only to `serve_segmentation_corpus/`, not repo-wide (see requirements.md Key Decisions).
+3. Confirm with the user that the remaining corpus files are placed, named per the convention with
+   `fps`/`res` matching each clip's actual capture (content `count` — see requirements.md's
+   `count` field semantics):
+   - `serve_segmentation_corpus/open_right_flat_5serve_30fps_<res>_ag.MOV`
+   - `serve_segmentation_corpus/open_right_flat_5serve_60fps_<res>_ag.MOV`
+   - `serve_segmentation_corpus/open_right_flat_<N>serve_<fps>fps_<res>_ag_heldout.MOV`
+   - `serve_segmentation_corpus/open_right_tosscatch_0serve_<fps>fps_<res>_ag.MOV`
+   - `serve_segmentation_corpus/open_right_ballbounce_0serve_<fps>fps_<res>_ag.MOV`
+   - `serve_segmentation_corpus/open_right_idle_0serve_<fps>fps_<res>_ag.MOV`
+   - `serve_segmentation_corpus/open_right_shadowswing_0serve_<fps>fps_<res>_ag.MOV`
+   If any is missing, note it and continue with Groups 2–5 (which don't need the files present) —
    Group 6 is where a missing file blocks.
-4. Create `backend/tools/segmentation_count_ground_truth.json`:
+4. Create `backend/tools/segmentation_count_ground_truth.json`, keyed by each clip's actual final
+   filename (fill in the real `<fps>`/`<res>` tokens from step 3 once placed):
    ```json
    {
      "videos": {
-       "serve_segmentation_corpus/2serve_30fps.MOV": {"expected_count": 2, "held_out": false},
-       "serve_segmentation_corpus/2serve_60fps_a.MOV": {"expected_count": 2, "held_out": false},
-       "serve_segmentation_corpus/2serve_60fps_b.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_ag.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_ag_a.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_ag_b.MOV": {"expected_count": 2, "held_out": false},
        "ag_three_serves.MOV": {"expected_count": 3, "held_out": false},
-       "serve_segmentation_corpus/3serve_60fps.MOV": {"expected_count": 3, "held_out": false},
-       "serve_segmentation_corpus/5serve_30fps.MOV": {"expected_count": 5, "held_out": false},
-       "serve_segmentation_corpus/5serve_60fps.MOV": {"expected_count": 5, "held_out": false},
-       "serve_segmentation_corpus/heldout_<N>serve_<fps>fps.MOV": {"expected_count": null, "held_out": true, "_note": "rename to the actual N/fps once placed; fill in expected_count to match"},
-       "serve_segmentation_corpus/negative_toss_catch.MOV": {"expected_count": 0, "held_out": false},
-       "serve_segmentation_corpus/negative_ball_bounce_routine.MOV": {"expected_count": 0, "held_out": false},
-       "serve_segmentation_corpus/negative_idle_only.MOV": {"expected_count": 0, "held_out": false},
-       "serve_segmentation_corpus/negative_shadow_swing.MOV": {
+       "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_ag.MOV": {"expected_count": 3, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_5serve_30fps_<res>_ag.MOV": {"expected_count": 5, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_5serve_60fps_<res>_ag.MOV": {"expected_count": 5, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_<N>serve_<fps>fps_<res>_ag_heldout.MOV": {"expected_count": null, "held_out": true, "_note": "fill in <N>/<fps>/<res> and expected_count once placed"},
+       "serve_segmentation_corpus/open_right_tosscatch_0serve_<fps>fps_<res>_ag.MOV": {"expected_count": 0, "held_out": false},
+       "serve_segmentation_corpus/open_right_ballbounce_0serve_<fps>fps_<res>_ag.MOV": {"expected_count": 0, "held_out": false},
+       "serve_segmentation_corpus/open_right_idle_0serve_<fps>fps_<res>_ag.MOV": {"expected_count": 0, "held_out": false},
+       "serve_segmentation_corpus/open_right_shadowswing_0serve_<fps>fps_<res>_ag.MOV": {
          "expected_count": 1,
          "held_out": false,
-         "_note": "Documented pose-only limitation, not a defect: a ball-less shadow swing is indistinguishable from a real serve using hitting-wrist-height alone. See requirements.md Key Decisions."
+         "_note": "Documented pose-only limitation, not a defect: a ball-less shadow swing is indistinguishable from a real serve using hitting-wrist-height alone. Filename's 0serve is content count (no real serve occurred); expected_count is what the algorithm is expected to detect. See requirements.md Key Decisions."
        }
      }
    }
    ```
-   Update the held-out row's key and `expected_count` once its real filename/content is known
+   Replace every `<fps>`/`<res>`/`<N>` placeholder with the clip's real values once placed
    (step 3).
 5. No `scripts/verify.sh` run — this group is data/config only, verified structurally by Group 2's
    tests reading the file.

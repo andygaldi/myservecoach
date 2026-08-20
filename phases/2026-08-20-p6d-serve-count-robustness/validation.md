@@ -8,7 +8,8 @@ Phase P6d is complete when all of the following pass.
 
 | Check | How to verify |
 |---|---|
-| `serve_segmentation_corpus/` exists with the four renamed matrix clips at their new paths | `ls backend/tools/calibration_data/serve_segmentation_corpus/` — `2serve_30fps.MOV`, `2serve_60fps_a.MOV`, `2serve_60fps_b.MOV`, `3serve_60fps.MOV` present. |
+| `serve_segmentation_corpus/` exists with the four renamed matrix clips at their new paths | `ls backend/tools/calibration_data/serve_segmentation_corpus/` — `open_right_flat_2serve_30fps_720x1280_ag.MOV`, `open_right_flat_2serve_60fps_2160x3840_ag_a.MOV`, `open_right_flat_2serve_60fps_1080x1920_ag_b.MOV`, `open_right_flat_3serve_60fps_1080x1920_ag.MOV` present. |
+| Every corpus filename matches the `{view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV` convention, with no field value containing an internal `_` | Inspection — each filename splits cleanly into exactly 7 or 8 `_`-delimited tokens (8 when `variant` is present) matching requirements.md's field table. |
 | `ag_three_serves.MOV` left in place, unrenamed | `ls backend/tools/calibration_data/ag_three_serves.MOV` still resolves. |
 | Full corpus present before Group 6 runs (5serve×2fps, held-out, 4 negatives) | Manual confirmation with the user per plan.md Group 1 step 3; Group 6 does not proceed on a partial corpus. |
 | `segmentation_count_ground_truth.json` has one entry per corpus video with correct `expected_count`/`held_out` | Inspection — cross-check against the table in requirements.md's "Corpus placement and naming convention" section; the held-out row's key/count updated to match the actually-placed file. |

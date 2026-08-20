@@ -19,28 +19,49 @@ inference on every parameter guess.
 - New directory: **`backend/tools/calibration_data/serve_segmentation_corpus/`** (gitignored,
   matching the existing `tools/calibration_data/` entry in `backend/.gitignore` — no video files
   are committed).
-- Naming convention for the fps matrix: **`{count}serve_{fps}fps[_variant].MOV`**.
+- **General-purpose naming convention** (not P6d-specific — designed to describe any future
+  serve-footage clip, not just fps-matrix entries):
+  ```
+  {view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV
+  ```
+  | Field | Vocabulary | Notes |
+  |---|---|---|
+  | `view` | `open` \| `closed` \| `behind` | Camera placement, matching the roadmap's own terms (open-side, closed-side/P15, behind-server/P7b). Every clip in this phase's corpus is `open` — Pro 2D and Lite are both open-side-only today. |
+  | `hand` | `right` \| `left` | Server's hitting hand. |
+  | `type` | `flat` \| `slice` \| `kick` \| `tosscatch` \| `ballbounce` \| `idle` \| `shadowswing` | Real serve types share the slot with negative-case motion categories — mutually exclusive descriptions of "what kind of motion this clip contains," so one field covers both without a schema fork. |
+  | `count` | `{N}serve` | **Content count** — the number of real serves that actually occurred in the footage, independent of what any algorithm is expected to detect. Negative-case clips (including `shadowswing`, which contains a serve-*shaped* motion but no real serve) get `0serve`. The `N` suffix (`serve`) keeps this token unambiguous against `fps`/`res` digits under a loose grep. |
+  | `fps` | `{N}fps` | Camera capture frame rate. |
+  | `res` | `{width}x{height}` | Exact captured pixel dimensions (portrait orientation as recorded) — not a lossy shorthand like `1080p`/`4k`, which is ambiguous between portrait/landscape and doesn't pin exact dims. |
+  | `name` | short identity token, e.g. `ag` | Server identity. No internal separators. |
+  | `variant` | optional, e.g. `a`, `b`, `heldout` | Disambiguates otherwise-identical filenames (same view/hand/type/count/fps/res/name) and marks corpus role (`heldout`) as an instance of the same pattern rather than a special-cased prefix. |
+
+  Every field value is itself separator-free (no embedded `_`) so the filename stays mechanically
+  parseable by a plain `.split("_")`, not just greppable by eye — this is what makes the convention
+  usable by future tooling, not only humans skimming a directory listing.
 - Existing clips renamed into the convention (`git mv`, unreferenced elsewhere in code — verified
   by repo-wide grep):
   | Current path | New path |
   |---|---|
-  | `calibration_data/test_2_serve_clip_c.MOV` (2 serves, 30fps, 720×1280) | `serve_segmentation_corpus/2serve_30fps.MOV` |
-  | `calibration_data/test_2_serve_clip_a.MOV` (2 serves, 60fps, 2160×3840) | `serve_segmentation_corpus/2serve_60fps_a.MOV` |
-  | `calibration_data/test_2_serve_clip_b.MOV` (2 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/2serve_60fps_b.MOV` |
-  | `calibration_data/new_3_serve_clip.MOV` (3 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/3serve_60fps.MOV` |
+  | `calibration_data/test_2_serve_clip_c.MOV` (2 serves, 30fps, 720×1280) | `serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_ag.MOV` |
+  | `calibration_data/test_2_serve_clip_a.MOV` (2 serves, 60fps, 2160×3840) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_ag_a.MOV` |
+  | `calibration_data/test_2_serve_clip_b.MOV` (2 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_ag_b.MOV` |
+  | `calibration_data/new_3_serve_clip.MOV` (3 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_ag.MOV` |
 - `calibration_data/ag_three_serves.MOV` (3 serves, 30fps) is **not** moved or renamed — it is
   referenced by its historical name across `phases.py` comments, `segmentation_ground_truth.json`,
-  and multiple prior phase triads. It fulfills the 3-serve/30fps matrix cell in place.
+  and multiple prior phase triads. It fulfills the 3-serve/30fps matrix cell in place, outside the
+  new convention (see Key Decisions — convention scope).
 - New clips the user supplies, matching the convention (not yet present on disk — placed before
-  the calibration task group runs):
-  - `serve_segmentation_corpus/5serve_30fps.MOV`
-  - `serve_segmentation_corpus/5serve_60fps.MOV`
-  - `serve_segmentation_corpus/heldout_<N>serve_<fps>fps.MOV` — exact `<N>`/`<fps>` fixed to
-    whatever the supplied clip actually contains.
-  - `serve_segmentation_corpus/negative_toss_catch.MOV`
-  - `serve_segmentation_corpus/negative_ball_bounce_routine.MOV`
-  - `serve_segmentation_corpus/negative_idle_only.MOV`
-  - `serve_segmentation_corpus/negative_shadow_swing.MOV`
+  the calibration task group runs; exact `fps`/`res` tokens fixed to whatever each clip actually
+  is when placed):
+  - `serve_segmentation_corpus/open_right_flat_5serve_30fps_<res>_ag.MOV`
+  - `serve_segmentation_corpus/open_right_flat_5serve_60fps_<res>_ag.MOV`
+  - `serve_segmentation_corpus/open_right_flat_<N>serve_<fps>fps_<res>_ag_heldout.MOV`
+  - `serve_segmentation_corpus/open_right_tosscatch_0serve_<fps>fps_<res>_ag.MOV`
+  - `serve_segmentation_corpus/open_right_ballbounce_0serve_<fps>fps_<res>_ag.MOV`
+  - `serve_segmentation_corpus/open_right_idle_0serve_<fps>fps_<res>_ag.MOV`
+  - `serve_segmentation_corpus/open_right_shadowswing_0serve_<fps>fps_<res>_ag.MOV` — `0serve` per
+    the content-count convention above; the algorithm's expected detection of `1` for this clip
+    lives only in `segmentation_count_ground_truth.json`'s `expected_count`, not in the filename.
 - If a matrix cell's file is missing when the calibration/verification task group runs, **stop and
   ask the user to place it** — do not silently skip a cell or record it as an accepted gap.
 
@@ -60,7 +81,9 @@ inference on every parameter guess.
   }
   ```
 - Every corpus entry (matrix cells, `ag_three_serves.MOV`, the held-out clip, all four negative
-  cases) gets a row. `negative_shadow_swing.MOV` is recorded with `expected_count: 1` and a `_note`
+  cases) gets a row. The `open_right_shadowswing_0serve_..._ag.MOV` clip is recorded with
+  `expected_count: 1` (note the mismatch against its own `0serve` filename token — the filename
+  describes footage content, this field describes expected algorithm behavior) and a `_note`
   documenting why (see Key Decisions).
 
 ### Tooling — `segmentation_report.py --score` mode
@@ -142,11 +165,15 @@ inference on every parameter guess.
 - **A `stride` sweep.** The fps matrix varies actual camera-capture frame rate; `DEFAULT_STRIDE = 2`
   (the production `/segment/video` sampling rate) is unchanged and is what the corpus is evaluated
   at, matching `segmentation_report.py`'s existing default.
-- **Rejecting `negative_shadow_swing.MOV`.** Recorded as `expected_count: 1`, a documented
-  pose-only limitation, not a defect this phase fixes (see Key Decisions). No ball-detection signal
-  is added to the counting path to attempt to distinguish it.
+- **Rejecting the shadow-swing clip.** Recorded as `expected_count: 1`, a documented pose-only
+  limitation, not a defect this phase fixes (see Key Decisions). No ball-detection signal is added
+  to the counting path to attempt to distinguish it.
 - **The Lite path.** `segment_serves` is Pro-2D-only; Lite's on-device Vision phase-guessing is
   untouched (isolation rule, unconditional).
+- **Renaming legacy calibration clips.** `ag_three_serves.MOV`, `alcaraz_serve_1.mov`,
+  `vesa_slow_mo.mov`, and `serve_1.MOV`–`serve_4.mov` keep their current names. Applying the new
+  naming convention to them — and updating every comment/JSON key/doc reference that names them —
+  is deferred to a later, deliberate pass, not folded into P6d (see Key Decisions).
 
 ## Key Decisions
 
@@ -157,6 +184,12 @@ inference on every parameter guess.
 | Corpus directory | New `serve_segmentation_corpus/` subdirectory under `calibration_data/` | User chose this name over `p6d_corpus/` specifically so the directory's contents are self-describing without needing the roadmap phase code to interpret it. |
 | Existing candidate clips | Renamed into the convention (`git mv`) rather than left under their old names | User confirmed — produces one uniform matrix the plan can enumerate by exact expected filename, rather than a mix of two naming schemes. |
 | `ag_three_serves.MOV` | Left in place, not renamed | Referenced by name across code comments, the existing ground-truth JSON, and multiple prior phase triads; renaming it would be unrelated churn with real risk of breaking a stale reference. |
+| Filename schema | `{view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV`, general-purpose rather than P6d-specific | User designed this to describe any future serve clip (view angle, handedness, serve type included) so a filename carries enough information that the file rarely needs to be opened just to know what's in it; ordered fixed-vocabulary-first (view/hand/type) then numeric (count/fps/res) then identity (name) for grep-friendliness. |
+| Field separators | Every field value is itself underscore-free (e.g. `tosscatch`, not `toss_catch`) | Keeps the filename mechanically parseable by a plain `.split("_")`, not just greppable by eye — required for the "future-proof" goal to mean anything to future tooling, not only humans. |
+| Negative-case `type` values | Share the `type` slot with real serve types (`flat`/`slice`/`kick`) rather than a new field | `tosscatch`/`ballbounce`/`idle`/`shadowswing` are mutually exclusive with real serve types — "what kind of motion this clip contains" — so one field covers both without forking the schema for negative cases. |
+| `count` field semantics | Content count — actual real serves in the footage, independent of algorithm behavior | User confirmed — the shadow-swing clip is the sharp case: it contains zero real serves (`0serve` in its filename) but the algorithm is expected to detect one (`expected_count: 1` in the ground-truth JSON only). Keeping the filename a neutral description of footage content, not a prediction of tool output, avoids the filename and the algorithm's behavior silently drifting apart as constants get retuned. |
+| Convention scope | Applies to the new `serve_segmentation_corpus/` only, for now | User confirmed — repo-wide adoption would mean renaming `ag_three_serves.MOV`, `alcaraz_serve_1.mov`, `vesa_slow_mo.mov`, and `serve_1-4.mov` and updating every place that names them (code comments, the existing ground-truth JSON, prior phase triads); real churn and real breakage risk, better done as its own deliberate pass than folded into this phase's scope. |
+| `heldout` marker | Lives in the `variant` slot, not a separate prefix | Makes the held-out clip's filename an instance of the same schema rather than a special case living outside it. |
 | Count ground truth format | New, separate `segmentation_count_ground_truth.json` | User confirmed — keeps the existing six-phase-timestamp ground truth (with its tiered tolerances) conceptually and structurally separate from this simpler count-only concern, per the roadmap's own observation that "serve counts ... need no timestamps." |
 | Held-out clip discipline | Hard merge gate — it must pass — but a failure is a disclosed finding, not something chased with constant retuning | User confirmed — exempting it from the pass bar would make it decorative; but re-tuning `k`/the separation window in direct response to its specific failure is curve-fitting by another name and defeats its purpose. A real fix would require reconsidering the approach, which is out of scope for reactive tuning mid-phase. |
 | `negative_shadow_swing.MOV` expected count | `1`, documented as a known pose-only limitation | User confirmed — a ball-less shadow swing is genuinely indistinguishable from a real serve using only 2D pose (no ball detection reliably survives to gate on, per the roadmap's own 10.8%-presence finding). Scoping in a ball-based rejection signal here would expand this phase well beyond "fix the counting heuristic." |
