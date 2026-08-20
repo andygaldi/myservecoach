@@ -8,11 +8,11 @@ Phase P6d is complete when all of the following pass.
 
 | Check | How to verify |
 |---|---|
-| `serve_segmentation_corpus/` exists with the four renamed matrix clips at their new paths | `ls backend/tools/calibration_data/serve_segmentation_corpus/` — `open_right_flat_2serve_30fps_720x1280_ag.MOV`, `open_right_flat_2serve_60fps_2160x3840_ag_a.MOV`, `open_right_flat_2serve_60fps_1080x1920_ag_b.MOV`, `open_right_flat_3serve_60fps_1080x1920_ag.MOV` present. |
+| `serve_segmentation_corpus/` exists with the four renamed legacy clips at their new paths (with `_c`/`_legacy` disambiguators where they'd otherwise collide with a user-placed file) | `ls backend/tools/calibration_data/serve_segmentation_corpus/` — `open_right_flat_2serve_30fps_720x1280_galdi_c.MOV`, `open_right_flat_2serve_60fps_2160x3840_galdi_a.MOV`, `open_right_flat_2serve_60fps_1080x1920_galdi_b.MOV`, `open_right_flat_3serve_60fps_1080x1920_galdi_legacy.MOV` present alongside the user-placed corpus. |
 | Every corpus filename matches the `{view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV` convention, with no field value containing an internal `_` | Inspection — each filename splits cleanly into exactly 7 or 8 `_`-delimited tokens (8 when `variant` is present) matching requirements.md's field table. |
 | `ag_three_serves.MOV` left in place, unrenamed | `ls backend/tools/calibration_data/ag_three_serves.MOV` still resolves. |
-| Full corpus present before Group 6 runs (5serve×2fps, held-out, 4 negatives) | Manual confirmation with the user per plan.md Group 1 step 3; Group 6 does not proceed on a partial corpus. |
-| `segmentation_count_ground_truth.json` has one entry per corpus video with correct `expected_count`/`held_out` | Inspection — cross-check against the table in requirements.md's "Corpus placement and naming convention" section; the held-out row's key/count updated to match the actually-placed file. |
+| Full user-placed corpus present (15 files: the 2/3/4/5-serve matrix cells, three holdout clips, and idle/tosscatch/ballbounce/shadowswing) | `ls backend/tools/calibration_data/serve_segmentation_corpus/` against the table in requirements.md's "Corpus placement and naming convention" section — already confirmed present before this spec revision landed. |
+| `segmentation_count_ground_truth.json` has one entry per corpus video (20 total: 15 user-placed + 4 legacy-renamed + `ag_three_serves.MOV`) with `expected_count` equal to each filename's `count` token, `held_out: true` on the three holdout clips, and `blocking: false` only on the shadow-swing row | Inspection — cross-check against plan.md Group 1 step 3's JSON verbatim. |
 
 ## `--score` Mode (Group 2)
 
@@ -20,7 +20,8 @@ Phase P6d is complete when all of the following pass.
 |---|---|
 | `score_videos` reports PASS/FAIL correctly against a stub count | `-only-testing` (or plain) run of `backend/tests/test_segmentation_report.py`'s new score cases. |
 | A ground-truth entry with no file on disk reports `MISSING`, not an exception | Same suite. |
-| Held-out rows are visually distinguished in `print_score_table`'s output | Same suite — asserts `[HELD OUT]` appears for a `held_out: true` row. |
+| A ground-truth entry omitting `blocking` defaults to `blocking: true` | Same suite. |
+| Held-out and non-blocking rows are visually distinguished in `print_score_table`'s output | Same suite — asserts `[HELD OUT]` appears for a `held_out: true` row and `[KNOWN LIMITATION]` for a `blocking: false` row. |
 | `scripts/verify.sh backend` green | Full backend suite. |
 
 ## Keypoint-Caching Sweep Tool (Group 3)
@@ -52,16 +53,18 @@ Phase P6d is complete when all of the following pass.
 
 ## Real-Corpus Calibration (Group 6) — **hard merge gate**
 
-Run against the full real corpus with real models. **All rows must pass before merging**, except
-where explicitly noted as disclose-don't-block.
+Run against the full real corpus with real models. **Every `blocking: true` row must pass before
+merging** (whether `held_out` or not) — the sole exception is the shadow-swing row
+(`blocking: false`), which is recorded but never gates.
 
 | Check | How to verify |
 |---|---|
 | Sweep grid explored and a `(floor_k, min_peak_separation_seconds)` combination selected on non-held-out data | `python backend/tools/segmentation_sweep.py --floor-k ... --min-separation ...` output, recorded in run notes below. |
-| Every non-held-out corpus row (matrix + `ag_three_serves.MOV` + negatives) is `PASS` | `python backend/tools/segmentation_report.py --score` full table. **Blocking.** |
-| Held-out row recorded; if it fails, disclosed as a finding rather than chased with constant retuning | Same `--score` run; run notes state the outcome either way and confirm no post-hoc constant change was made in direct response to it. **The held-out row must still PASS to merge** — see plan.md's held-out discipline note for what "disclosed, not chased" means in practice. |
+| Every `blocking: true`, non-held-out corpus row (matrix cells + `ag_three_serves.MOV` + `tosscatch`/`ballbounce`/`idle`) is `PASS` | `python backend/tools/segmentation_report.py --score` full table. **Blocking.** |
+| All three held-out rows (3-serve/60fps, 4-serve/30fps, 5-serve/60fps) recorded; if any fails, disclosed as a finding rather than chased with constant retuning | Same `--score` run; run notes state each outcome and confirm no post-hoc constant change was made in direct response to a held-out-specific failure. **Every held-out row must still PASS to merge** — see plan.md's held-out discipline note for what "disclosed, not chased" means in practice. |
 | Six-phase timestamp ground truth regression still passes | `RUN_MODEL_INTEGRATION_TESTS=1 pytest backend/tests/test_segmentation_ground_truth.py -v` — zero failures. |
-| Negative cases reject/register per their documented expected counts, including the disclosed `negative_shadow_swing.MOV` limitation | Same `--score` table; `negative_shadow_swing.MOV` shows `PASS` against `expected_count: 1`, not treated as a bug. |
+| `tosscatch`/`ballbounce` clips correctly count only their real serves, ignoring the mixed-in distractor motion | Same `--score` table; both clips show `PASS` (detected count equals their real-serve count) — a failure here is a genuine defect in the body-relative floor, not an accepted gap. |
+| Shadow-swing clip's result recorded but non-blocking | Same `--score` table; the row shows `[KNOWN LIMITATION]`, and its actual vs. expected (2) count is recorded in run notes regardless of PASS/FAIL — does not affect the merge decision. |
 
 ## Documentation & Cross-Cutting (Group 7)
 
@@ -77,14 +80,15 @@ Minimum bar for squash-merging into `develop`:
 
 1. `scripts/verify.sh backend` green.
 2. Every Group 1–5 and Group 7 table row above verified.
-3. **Group 6's hard gate fully satisfied**: every non-held-out corpus row PASS, the held-out row
-   PASS (with its result disclosed, not used to retune constants), and the six-phase ground-truth
-   regression suite green. Not disclosable — if the full corpus was never placed or Group 6 was
-   never run, the phase does not merge.
+3. **Group 6's hard gate fully satisfied**: every `blocking: true` corpus row PASS — including all
+   three held-out clips (results disclosed, not used to retune constants) — and the six-phase
+   ground-truth regression suite green. Not disclosable — if the corpus doesn't match the
+   ground-truth JSON or Group 6 was never run, the phase does not merge. The shadow-swing clip
+   (`blocking: false`) is the sole exception and never gates.
 4. No iOS file, `rules.json`, or phase-detection/rule-evaluation logic in the changed-file list —
    this phase changes serve counting and segment boundary placement only.
-5. `negative_shadow_swing.MOV`'s `expected_count: 1` is confirmed intentional (not accidentally
-   left as a TODO) in the final ground-truth JSON.
+5. The shadow-swing clip's `expected_count: 2` and `blocking: false` are confirmed intentional (not
+   accidentally left as a TODO) in the final ground-truth JSON.
 
 **Run notes:**
 

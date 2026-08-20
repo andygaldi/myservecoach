@@ -3,65 +3,77 @@
 > **Lite-isolation note:** no group touches Lite code. `segment_serves` is Pro-2D-only; its public
 > signature and `SegmentResponse` wire shape are unchanged throughout.
 
-> **Held-out discipline (applies to Group 6):** the held-out clip's expected count must pass, but
-> its result must never be used to justify a constant change. If it fails after Groups 1–5 are
-> otherwise calibrated and green, record the failure in `validation.md` run notes as a disclosed
-> finding — do not adjust `HITTING_WRIST_FLOOR_K` or `MIN_PEAK_SEPARATION_SECONDS` in response to
-> it specifically.
+> **Held-out discipline (applies to Group 6):** each of the corpus's three held-out clips'
+> expected count must pass, but its result must never be used to justify a constant change. If any
+> fails after Groups 1–5 are otherwise calibrated and green, record the failure in `validation.md`
+> run notes as a disclosed finding — do not adjust `HITTING_WRIST_FLOOR_K` or
+> `MIN_PEAK_SEPARATION_SECONDS` in response to it specifically.
+>
+> **Shadow-swing exception (applies to Group 6):** the one row with `blocking: false` in
+> `segmentation_count_ground_truth.json` (the shadow-swing clip) does not gate the merge even if it
+> fails — see requirements.md Key Decisions for why this one clip, and no other negative-type clip,
+> gets this treatment.
 
 ## Group 1 — Corpus Placement & Count Ground Truth (surface: `backend`, data)
 
-1. Create `backend/tools/calibration_data/serve_segmentation_corpus/`.
-2. `git mv` the four existing candidate clips into the convention
-   (`{view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV`):
+1. `backend/tools/calibration_data/serve_segmentation_corpus/` already exists — the user has placed
+   the full corpus (15 files; verified against real file metadata, every `fps`/`res` token
+   matches). No file placement work remains in this group.
+2. `git mv` the four legacy candidate clips into the convention
+   (`{view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV`). Two of the four collide
+   exactly (same view/hand/type/count/fps/res/name) with a file the user already placed, so each
+   gets a disambiguating `variant` suffix instead of overwriting a real corpus entry:
    ```
-   git mv backend/tools/calibration_data/test_2_serve_clip_c.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_ag.MOV
-   git mv backend/tools/calibration_data/test_2_serve_clip_a.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_ag_a.MOV
-   git mv backend/tools/calibration_data/test_2_serve_clip_b.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_ag_b.MOV
-   git mv backend/tools/calibration_data/new_3_serve_clip.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_ag.MOV
+   git mv backend/tools/calibration_data/test_2_serve_clip_c.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_c.MOV
+   git mv backend/tools/calibration_data/test_2_serve_clip_a.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_a.MOV
+   git mv backend/tools/calibration_data/test_2_serve_clip_b.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_b.MOV
+   git mv backend/tools/calibration_data/new_3_serve_clip.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_legacy.MOV
    ```
-   (These paths are gitignored — `git mv` will report the rename but the files themselves are not
-   tracked; this step is a plain filesystem rename that stays consistent with git's view either
-   way.) Leave `calibration_data/ag_three_serves.MOV` untouched — the naming convention applies
-   only to `serve_segmentation_corpus/`, not repo-wide (see requirements.md Key Decisions).
-3. Confirm with the user that the remaining corpus files are placed, named per the convention with
-   `fps`/`res` matching each clip's actual capture (content `count` — see requirements.md's
-   `count` field semantics):
-   - `serve_segmentation_corpus/open_right_flat_5serve_30fps_<res>_ag.MOV`
-   - `serve_segmentation_corpus/open_right_flat_5serve_60fps_<res>_ag.MOV`
-   - `serve_segmentation_corpus/open_right_flat_<N>serve_<fps>fps_<res>_ag_heldout.MOV`
-   - `serve_segmentation_corpus/open_right_tosscatch_0serve_<fps>fps_<res>_ag.MOV`
-   - `serve_segmentation_corpus/open_right_ballbounce_0serve_<fps>fps_<res>_ag.MOV`
-   - `serve_segmentation_corpus/open_right_idle_0serve_<fps>fps_<res>_ag.MOV`
-   - `serve_segmentation_corpus/open_right_shadowswing_0serve_<fps>fps_<res>_ag.MOV`
-   If any is missing, note it and continue with Groups 2–5 (which don't need the files present) —
-   Group 6 is where a missing file blocks.
-4. Create `backend/tools/segmentation_count_ground_truth.json`, keyed by each clip's actual final
-   filename (fill in the real `<fps>`/`<res>` tokens from step 3 once placed):
+   (`test_2_serve_clip_c.MOV`'s target uses `_c` since it's genuinely the third of that historical
+   trio; `new_3_serve_clip.MOV` gets `_legacy` rather than `_c` since it was never part of that
+   trio and reusing `_c` there would misleadingly imply it was.)
+   Before running these, re-verify no filename collision exists against the corpus as it actually
+   stands at implementation time (the table below) — if the user has added more files since this
+   plan was written, re-check. (These paths are gitignored — `git mv` will report the rename but
+   the files themselves are not tracked; this step is a plain filesystem rename that stays
+   consistent with git's view either way.) Leave `calibration_data/ag_three_serves.MOV` untouched —
+   the naming convention applies only to `serve_segmentation_corpus/`, not repo-wide (see
+   requirements.md Key Decisions).
+3. Create `backend/tools/segmentation_count_ground_truth.json`:
    ```json
    {
      "videos": {
-       "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_ag.MOV": {"expected_count": 2, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_ag_a.MOV": {"expected_count": 2, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_ag_b.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_c.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_30fps_1080x1920_galdi.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_a.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_b.MOV": {"expected_count": 2, "held_out": false},
        "ag_three_serves.MOV": {"expected_count": 3, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_ag.MOV": {"expected_count": 3, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_5serve_30fps_<res>_ag.MOV": {"expected_count": 5, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_5serve_60fps_<res>_ag.MOV": {"expected_count": 5, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_<N>serve_<fps>fps_<res>_ag_heldout.MOV": {"expected_count": null, "held_out": true, "_note": "fill in <N>/<fps>/<res> and expected_count once placed"},
-       "serve_segmentation_corpus/open_right_tosscatch_0serve_<fps>fps_<res>_ag.MOV": {"expected_count": 0, "held_out": false},
-       "serve_segmentation_corpus/open_right_ballbounce_0serve_<fps>fps_<res>_ag.MOV": {"expected_count": 0, "held_out": false},
-       "serve_segmentation_corpus/open_right_idle_0serve_<fps>fps_<res>_ag.MOV": {"expected_count": 0, "held_out": false},
-       "serve_segmentation_corpus/open_right_shadowswing_0serve_<fps>fps_<res>_ag.MOV": {
-         "expected_count": 1,
+       "serve_segmentation_corpus/open_right_flat_3serve_30fps_720x1280_galdi.MOV": {"expected_count": 3, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_3serve_30fps_1080x1920_galdi.MOV": {"expected_count": 3, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi.MOV": {"expected_count": 3, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_legacy.MOV": {"expected_count": 3, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_holdout.MOV": {"expected_count": 3, "held_out": true},
+       "serve_segmentation_corpus/open_right_flat_4serve_30fps_1080x1920_galdi_holdout.MOV": {"expected_count": 4, "held_out": true},
+       "serve_segmentation_corpus/open_right_flat_4serve_60fps_1080x1920_galdi.MOV": {"expected_count": 4, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_5serve_30fps_720x1280_galdi.MOV": {"expected_count": 5, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_5serve_60fps_1080x1920_galdi_holdout.MOV": {"expected_count": 5, "held_out": true},
+       "serve_segmentation_corpus/open_right_idle_0serve_30fps_720x1280_galdi.MOV": {"expected_count": 0, "held_out": false},
+       "serve_segmentation_corpus/open_right_tosscatch_3serve_30fps_720x1280_galdi.MOV": {"expected_count": 3, "held_out": false},
+       "serve_segmentation_corpus/open_right_ballbounce_3serve_30fps_720x1280_galdi.MOV": {"expected_count": 3, "held_out": false},
+       "serve_segmentation_corpus/open_right_shadowswing_2serve_30fps_720x1280_galdi.MOV": {
+         "expected_count": 2,
          "held_out": false,
-         "_note": "Documented pose-only limitation, not a defect: a ball-less shadow swing is indistinguishable from a real serve using hitting-wrist-height alone. Filename's 0serve is content count (no real serve occurred); expected_count is what the algorithm is expected to detect. See requirements.md Key Decisions."
+         "blocking": false,
+         "_note": "Contains 2 real serves plus an unspecified number of ball-less shadow-swing reps. A shadow swing is pose-indistinguishable from a real serve (no ball signal to gate on), so segment_serves is expected to plausibly over-count. Documented, non-blocking limitation — see requirements.md Key Decisions. Every other negative-type clip (tosscatch, ballbounce) IS a hard blocking gate: their distractor motions are exactly what the body-relative floor is designed to filter."
        }
      }
    }
    ```
-   Replace every `<fps>`/`<res>`/`<N>` placeholder with the clip's real values once placed
-   (step 3).
+4. If the user has placed any corpus file not listed above, or a listed file turns out to be
+   missing, stop and reconcile with the user before continuing — do not silently add or drop a
+   ground-truth row.
 5. No `scripts/verify.sh` run — this group is data/config only, verified structurally by Group 2's
    tests reading the file.
 
@@ -77,29 +89,37 @@
    ) -> list[dict]:
        """Run segment_serves over every video in ground_truth['videos'] and compare the detected
        segment count to expected_count. Returns one result dict per ground-truth entry:
-       {video_name, expected_count, actual_count, held_out, status} where status is
-       "PASS" / "FAIL" / "MISSING" (file not found on disk)."""
+       {video_name, expected_count, actual_count, held_out, blocking, status} where status is
+       "PASS" / "FAIL" / "MISSING" (file not found on disk). `blocking` defaults to True when a
+       ground-truth entry omits the field."""
    ```
    Resolve each ground-truth key against `_TOOLS_DIR / "calibration_data" / video_name` (mirrors
    `test_segmentation_ground_truth.py`'s existing resolution). Reuse `build_frame_sequence` for
    inference and `segment_serves` for counting — no new inference path.
 7. Add a `print_score_table(results: list[dict]) -> None` helper: one row per result, `[HELD OUT]`
-   prefix on `held_out: true` rows, `MISSING` rows called out distinctly from `FAIL`. Print a
-   summary line (`N/M passed, K missing, showing held-out separately`).
+   prefix on `held_out: true` rows, `[KNOWN LIMITATION]` prefix on `blocking: false` rows (both can
+   apply to the same row, though today only the shadow-swing row has either), `MISSING` rows called
+   out distinctly from `FAIL`. Print a summary line
+   (`N/M blocking passed, K missing, showing held-out/non-blocking separately`).
 8. Extend `_build_arg_parser()` with `--score` (`action="store_true"`) and `--ground-truth`
    (default `_TOOLS_DIR / "segmentation_count_ground_truth.json"`). In `main()`, when `--score` is
    set: load the ground truth JSON, call `score_videos` over its keys (ignoring `--videos`'s glob —
    the ground truth file is authoritative for which videos to score), print the table, and exit
-   nonzero if any non-held-out, non-missing row is `FAIL` (held-out failures print but don't affect
-   exit code, matching the disclose-don't-block-here stance — Group 6 applies the real merge gate
-   manually, this is just the tool's own exit semantics for CI-style use).
+   nonzero if any row with `blocking: true` (the default) and `held_out: false` is `FAIL`. Held-out
+   failures print but don't affect exit code (Group 6 applies the real held-out merge-gate
+   discipline manually — a held-out failure is still a hard gate for merging, just not something
+   the sweep/score tooling auto-blocks on, since a developer running `--score` mid-calibration
+   shouldn't be blocked by a clip they're not allowed to tune against anyway). `blocking: false`
+   rows never affect exit code regardless of `held_out`.
 9. Extend `backend/tests/test_segmentation_report.py` (synthetic-fixture style, no real models —
    mirrors the file's existing stub-model pattern):
    - `score_videos` with a stub `segment_serves`-equivalent returning a fixed count: PASS when
      counts match, FAIL when they don't.
    - A ground-truth entry whose video file doesn't exist on disk yields `status == "MISSING"`, not
      an exception.
-   - `print_score_table` output contains `[HELD OUT]` for a `held_out: true` row.
+   - A ground-truth entry omitting `blocking` defaults to `blocking: true`.
+   - `print_score_table` output contains `[HELD OUT]` for a `held_out: true` row and
+     `[KNOWN LIMITATION]` for a `blocking: false` row.
 10. Run `scripts/verify.sh backend` — confirm green.
 
 ## Group 3 — Keypoint-Caching Sweep Tool (surface: `backend`)
@@ -216,31 +236,38 @@
 
 ## Group 6 — Real-Corpus Calibration (surface: `backend`, manual/tooling-driven) — **hard merge gate**
 
-> **Stop before this group and confirm with the user that every corpus file listed in Group 1
-> step 3 is present** (`5serve_30fps.MOV`, `5serve_60fps.MOV`, the held-out clip, all four
-> `negative_*.MOV` clips). This group needs real models and real footage; it is not part of the
-> fast unit-test loop and should not be attempted against a partial corpus.
+> **Stop before this group and confirm with the user that the corpus in
+> `serve_segmentation_corpus/` still matches Group 1's ground-truth JSON** (no files added/removed
+> since this plan was written). This group needs real models and real footage; it is not part of
+> the fast unit-test loop and should not be attempted against a corpus that's drifted from the
+> ground truth.
 
 24. Run `python backend/tools/segmentation_sweep.py` over the full corpus with a reasonable initial
     grid around the Group 4 defaults (e.g. `--floor-k 0.08,0.12,0.15,0.2,0.3` `--min-separation
-    0.4,0.6,0.8,1.0`) to warm the keypoint cache and get a ranked candidate list.
+    0.4,0.6,0.8,1.0`) to warm the keypoint cache and get a ranked candidate list. The sweep tool
+    excludes `held_out: true` entries from scoring by design (Group 3); it does not need to also
+    exclude `blocking: false` — the shadow-swing clip's likely over-count would just make it a
+    low/non-contributing scorer, not a misleading one, across every candidate combination equally.
 25. Pick the best-scoring `(floor_k, min_peak_separation_seconds)` combination over the
     **non-held-out** corpus and update `HITTING_WRIST_FLOOR_K`/`MIN_PEAK_SEPARATION_SECONDS` in
     `phases.py` to match.
-26. Run `python backend/tools/segmentation_report.py --score` (full corpus, including the held-out
-    clip) with the chosen constants. Every non-held-out row must be `PASS`. The held-out row is a
-    hard gate too (see the plan-level Held-out discipline note above) — record its result either
-    way, but do not iterate `floor_k`/`min_peak_separation_seconds` in response to it.
+26. Run `python backend/tools/segmentation_report.py --score` (full corpus, including all three
+    held-out clips) with the chosen constants. Every row with `blocking: true` (the default) —
+    whether held-out or not — must be `PASS`; the shadow-swing row (`blocking: false`) is recorded
+    but does not gate. Held-out rows are a hard gate too (see the plan-level Held-out discipline
+    note above) — record each result either way, but do not iterate
+    `floor_k`/`min_peak_separation_seconds` in response to a held-out-specific failure.
 27. Run `RUN_MODEL_INTEGRATION_TESTS=1 pytest backend/tests/test_segmentation_ground_truth.py -v`
     — the existing six-phase-timestamp regression suite must stay green. Boundary placement moving
     (even with the same final serve count) can shift which frames land in which segment, which
     could shift `detect_phases`' within-segment results; this is the check that it didn't.
-28. If any non-held-out row fails after a reasonable sweep grid, treat it as a genuine defect —
+28. If any `blocking: true` row fails after a reasonable sweep grid, treat it as a genuine defect —
     widen the grid or revisit the floor/NMS design per requirements.md's locked approach, but do
     not special-case a single clip's constants. If a held-out or negative-case row's target itself
     turns out to be wrong (e.g. the recorded footage doesn't actually contain what its filename
     claims), fix the ground-truth entry, not the algorithm.
-29. Record the final constants, the full `--score` table, and the sweep grid explored in
+29. Record the final constants, the full `--score` table (including the shadow-swing clip's actual
+    vs. expected count, even though it's non-blocking), and the sweep grid explored in
     `validation.md` run notes.
 
 ## Group 7 — Documentation & Cross-Cutting Verification (surface: `backend`)

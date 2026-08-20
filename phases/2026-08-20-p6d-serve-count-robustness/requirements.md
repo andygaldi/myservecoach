@@ -28,42 +28,58 @@ inference on every parameter guess.
   |---|---|---|
   | `view` | `open` \| `closed` \| `behind` | Camera placement, matching the roadmap's own terms (open-side, closed-side/P15, behind-server/P7b). Every clip in this phase's corpus is `open` — Pro 2D and Lite are both open-side-only today. |
   | `hand` | `right` \| `left` | Server's hitting hand. |
-  | `type` | `flat` \| `slice` \| `kick` \| `tosscatch` \| `ballbounce` \| `idle` \| `shadowswing` | Real serve types share the slot with negative-case motion categories — mutually exclusive descriptions of "what kind of motion this clip contains," so one field covers both without a schema fork. |
-  | `count` | `{N}serve` | **Content count** — the number of real serves that actually occurred in the footage, independent of what any algorithm is expected to detect. Negative-case clips (including `shadowswing`, which contains a serve-*shaped* motion but no real serve) get `0serve`. The `N` suffix (`serve`) keeps this token unambiguous against `fps`/`res` digits under a loose grep. |
+  | `type` | `flat` \| `slice` \| `kick` \| `tosscatch` \| `ballbounce` \| `idle` \| `shadowswing` | For real-serve types, describes the serve. For negative types, describes the *distractor motion mixed into the clip alongside its real serves* (not a purity marker — see `count` below) — mutually exclusive categories, so one field covers both without a schema fork. |
+  | `count` | `{N}serve` | **The number of real serves actually in the footage — always, regardless of `type`.** A `tosscatch`/`ballbounce`/`shadowswing` clip is not a pure negative recording; it contains `N` genuine serves *plus* an unspecified number of the named distractor motion, testing whether the algorithm counts only the real serves despite the distractor. `idle` is the one type where `count` is always `0serve` (no motion at all). The `N` suffix keeps this token unambiguous against `fps`/`res` digits under a loose grep. |
   | `fps` | `{N}fps` | Camera capture frame rate. |
   | `res` | `{width}x{height}` | Exact captured pixel dimensions (portrait orientation as recorded) — not a lossy shorthand like `1080p`/`4k`, which is ambiguous between portrait/landscape and doesn't pin exact dims. |
-  | `name` | short identity token, e.g. `ag` | Server identity. No internal separators. |
-  | `variant` | optional, e.g. `a`, `b`, `heldout` | Disambiguates otherwise-identical filenames (same view/hand/type/count/fps/res/name) and marks corpus role (`heldout`) as an instance of the same pattern rather than a special-cased prefix. |
+  | `name` | short identity token, e.g. `galdi` | Server identity. No internal separators. |
+  | `variant` | optional, e.g. `a`, `b`, `holdout` | Disambiguates otherwise-identical filenames (same view/hand/type/count/fps/res/name) and marks corpus role (`holdout`) as an instance of the same pattern rather than a special-cased prefix. |
 
   Every field value is itself separator-free (no embedded `_`) so the filename stays mechanically
   parseable by a plain `.split("_")`, not just greppable by eye — this is what makes the convention
   usable by future tooling, not only humans skimming a directory listing.
 - Existing clips renamed into the convention (`git mv`, unreferenced elsewhere in code — verified
-  by repo-wide grep):
+  by repo-wide grep). Two of the four collide with a file the user separately placed at the exact
+  same view/hand/type/count/fps/res/name — both get a disambiguating `variant` suffix instead of
+  overwriting a real corpus entry:
   | Current path | New path |
   |---|---|
-  | `calibration_data/test_2_serve_clip_c.MOV` (2 serves, 30fps, 720×1280) | `serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_ag.MOV` |
-  | `calibration_data/test_2_serve_clip_a.MOV` (2 serves, 60fps, 2160×3840) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_ag_a.MOV` |
-  | `calibration_data/test_2_serve_clip_b.MOV` (2 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_ag_b.MOV` |
-  | `calibration_data/new_3_serve_clip.MOV` (3 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_ag.MOV` |
+  | `calibration_data/test_2_serve_clip_c.MOV` (2 serves, 30fps, 720×1280) | `serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_c.MOV` **(`_c` — collides with the user's own `..._galdi.MOV` otherwise)** |
+  | `calibration_data/test_2_serve_clip_a.MOV` (2 serves, 60fps, 2160×3840) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_a.MOV` |
+  | `calibration_data/test_2_serve_clip_b.MOV` (2 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_b.MOV` |
+  | `calibration_data/new_3_serve_clip.MOV` (3 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_legacy.MOV` **(`_legacy` — collides with the user's own `..._galdi.MOV` otherwise; not `_c`, to avoid implying it's part of the `a`/`b`/`c` trio above, which it never was)** |
 - `calibration_data/ag_three_serves.MOV` (3 serves, 30fps) is **not** moved or renamed — it is
   referenced by its historical name across `phases.py` comments, `segmentation_ground_truth.json`,
   and multiple prior phase triads. It fulfills the 3-serve/30fps matrix cell in place, outside the
   new convention (see Key Decisions — convention scope).
-- New clips the user supplies, matching the convention (not yet present on disk — placed before
-  the calibration task group runs; exact `fps`/`res` tokens fixed to whatever each clip actually
-  is when placed):
-  - `serve_segmentation_corpus/open_right_flat_5serve_30fps_<res>_ag.MOV`
-  - `serve_segmentation_corpus/open_right_flat_5serve_60fps_<res>_ag.MOV`
-  - `serve_segmentation_corpus/open_right_flat_<N>serve_<fps>fps_<res>_ag_heldout.MOV`
-  - `serve_segmentation_corpus/open_right_tosscatch_0serve_<fps>fps_<res>_ag.MOV`
-  - `serve_segmentation_corpus/open_right_ballbounce_0serve_<fps>fps_<res>_ag.MOV`
-  - `serve_segmentation_corpus/open_right_idle_0serve_<fps>fps_<res>_ag.MOV`
-  - `serve_segmentation_corpus/open_right_shadowswing_0serve_<fps>fps_<res>_ag.MOV` — `0serve` per
-    the content-count convention above; the algorithm's expected detection of `1` for this clip
-    lives only in `segmentation_count_ground_truth.json`'s `expected_count`, not in the filename.
-- If a matrix cell's file is missing when the calibration/verification task group runs, **stop and
-  ask the user to place it** — do not silently skip a cell or record it as an accepted gap.
+- **The user has placed the full corpus.** Actual files in
+  `backend/tools/calibration_data/serve_segmentation_corpus/` (verified against real file metadata
+  — every `fps`/`res` token matches exactly):
+  | Filename | Real serves | Distractor motion | fps | Resolution | Held out |
+  |---|---|---|---|---|---|
+  | `open_right_flat_2serve_30fps_720x1280_galdi.MOV` | 2 | — | 30 | 720×1280 | no |
+  | `open_right_flat_2serve_30fps_1080x1920_galdi.MOV` | 2 | — | 30 | 1080×1920 | no |
+  | `open_right_flat_2serve_60fps_1080x1920_galdi.MOV` | 2 | — | 60 | 1080×1920 | no |
+  | `open_right_flat_3serve_30fps_720x1280_galdi.MOV` | 3 | — | 30 | 720×1280 | no |
+  | `open_right_flat_3serve_30fps_1080x1920_galdi.MOV` | 3 | — | 30 | 1080×1920 | no |
+  | `open_right_flat_3serve_60fps_1080x1920_galdi.MOV` | 3 | — | 60 | 1080×1920 | no |
+  | `open_right_flat_3serve_60fps_1080x1920_galdi_holdout.MOV` | 3 | — | 60 | 1080×1920 | **yes** |
+  | `open_right_flat_4serve_30fps_1080x1920_galdi_holdout.MOV` | 4 | — | 30 | 1080×1920 | **yes** |
+  | `open_right_flat_4serve_60fps_1080x1920_galdi.MOV` | 4 | — | 60 | 1080×1920 | no |
+  | `open_right_flat_5serve_30fps_720x1280_galdi.MOV` | 5 | — | 30 | 720×1280 | no |
+  | `open_right_flat_5serve_60fps_1080x1920_galdi_holdout.MOV` | 5 | — | 60 | 1080×1920 | **yes** |
+  | `open_right_idle_0serve_30fps_720x1280_galdi.MOV` | 0 | idle | 30 | 720×1280 | no |
+  | `open_right_tosscatch_3serve_30fps_720x1280_galdi.MOV` | 3 | toss-and-catch reps | 30 | 720×1280 | no |
+  | `open_right_ballbounce_3serve_30fps_720x1280_galdi.MOV` | 3 | ball-bounce routine | 30 | 720×1280 | no |
+  | `open_right_shadowswing_2serve_30fps_720x1280_galdi.MOV` | 2 | shadow-swing reps | 30 | 720×1280 | no (see Key Decisions — this clip's count-match is a disclosed, non-blocking check) |
+
+  This exceeds the originally-scoped 2/3/5-serve × 30/60fps matrix in two ways, both welcome: a
+  bonus 4-serve cell at both fps, and three holdout clips (3-serve/60fps, 4-serve/30fps,
+  5-serve/60fps) instead of one — no plain (non-holdout) 5-serve/60fps clip exists, so that cell is
+  evaluated only after constants are picked, never used to tune them (see Key Decisions).
+- If a corpus file the plan expects turns out to be missing when the calibration/verification task
+  group runs, **stop and ask the user to place it** — do not silently skip it or record it as an
+  accepted gap.
 
 ### Count ground truth
 
@@ -75,16 +91,19 @@ inference on every parameter guess.
       "<path relative to calibration_data/>": {
         "expected_count": 0,
         "held_out": false,
+        "blocking": true,
         "_note": "optional"
       }
     }
   }
   ```
-- Every corpus entry (matrix cells, `ag_three_serves.MOV`, the held-out clip, all four negative
-  cases) gets a row. The `open_right_shadowswing_0serve_..._ag.MOV` clip is recorded with
-  `expected_count: 1` (note the mismatch against its own `0serve` filename token — the filename
-  describes footage content, this field describes expected algorithm behavior) and a `_note`
-  documenting why (see Key Decisions).
+  `blocking` defaults to `true` (a row's PASS/FAIL counts toward the Group 6 merge gate) and is set
+  `false` only for the shadow-swing clip (see Key Decisions).
+- Every corpus entry gets a row, with `expected_count` equal to the filename's `count` token in
+  every case — the ground truth and the filename agree by construction, since `count` was defined
+  specifically to mean "what `segment_serves` should detect" (see the `count` field's Key Decisions
+  entry). The one exception is *enforcement*, not value: the shadow-swing row's `expected_count` is
+  still `2`, but `blocking: false` — see Key Decisions.
 
 ### Tooling — `segmentation_report.py --score` mode
 
@@ -92,8 +111,10 @@ inference on every parameter guess.
   `segment_serves` over every corpus video, compare `len(segments)` to
   `segmentation_count_ground_truth.json`'s `expected_count`, and print a pass/fail table. Rows for
   `held_out: true` videos are visually distinguished (e.g. a `[HELD OUT]` marker) so a developer
-  scanning the output doesn't casually retune against them. A video listed in the ground truth but
-  missing on disk is reported as `MISSING`, not a crash.
+  scanning the output doesn't casually retune against them; rows with `blocking: false` get their
+  own marker (e.g. `[KNOWN LIMITATION]`) and, like held-out rows, don't affect the tool's exit
+  code. A video listed in the ground truth but missing on disk is reported as `MISSING`, not a
+  crash.
 
 ### Tooling — keypoint-caching sweep tool
 
@@ -165,9 +186,11 @@ inference on every parameter guess.
 - **A `stride` sweep.** The fps matrix varies actual camera-capture frame rate; `DEFAULT_STRIDE = 2`
   (the production `/segment/video` sampling rate) is unchanged and is what the corpus is evaluated
   at, matching `segmentation_report.py`'s existing default.
-- **Rejecting the shadow-swing clip.** Recorded as `expected_count: 1`, a documented pose-only
+- **Rejecting the shadow-swing distractor motion.** The shadow-swing clip's `expected_count: 2`
+  (its real-serve count) is a disclosed, non-blocking check (`blocking: false`) — the algorithm is
+  expected to plausibly over-count by also picking up the shadow-swing reps, a documented pose-only
   limitation, not a defect this phase fixes (see Key Decisions). No ball-detection signal is added
-  to the counting path to attempt to distinguish it.
+  to the counting path to attempt to distinguish real serves from shadow swings.
 - **The Lite path.** `segment_serves` is Pro-2D-only; Lite's on-device Vision phase-guessing is
   untouched (isolation rule, unconditional).
 - **Renaming legacy calibration clips.** `ag_three_serves.MOV`, `alcaraz_serve_1.mov`,
@@ -189,10 +212,11 @@ inference on every parameter guess.
 | Negative-case `type` values | Share the `type` slot with real serve types (`flat`/`slice`/`kick`) rather than a new field | `tosscatch`/`ballbounce`/`idle`/`shadowswing` are mutually exclusive with real serve types — "what kind of motion this clip contains" — so one field covers both without forking the schema for negative cases. |
 | `count` field semantics | Content count — actual real serves in the footage, independent of algorithm behavior | User confirmed — the shadow-swing clip is the sharp case: it contains zero real serves (`0serve` in its filename) but the algorithm is expected to detect one (`expected_count: 1` in the ground-truth JSON only). Keeping the filename a neutral description of footage content, not a prediction of tool output, avoids the filename and the algorithm's behavior silently drifting apart as constants get retuned. |
 | Convention scope | Applies to the new `serve_segmentation_corpus/` only, for now | User confirmed — repo-wide adoption would mean renaming `ag_three_serves.MOV`, `alcaraz_serve_1.mov`, `vesa_slow_mo.mov`, and `serve_1-4.mov` and updating every place that names them (code comments, the existing ground-truth JSON, prior phase triads); real churn and real breakage risk, better done as its own deliberate pass than folded into this phase's scope. |
-| `heldout` marker | Lives in the `variant` slot, not a separate prefix | Makes the held-out clip's filename an instance of the same schema rather than a special case living outside it. |
+| `holdout` marker | Lives in the `variant` slot, not a separate prefix | Makes a held-out clip's filename an instance of the same schema rather than a special case living outside it. (Spelled `holdout`, not the `heldout` this spec originally specified — conformed to match the files the user actually placed rather than requesting a rename of already-recorded video files.) |
 | Count ground truth format | New, separate `segmentation_count_ground_truth.json` | User confirmed — keeps the existing six-phase-timestamp ground truth (with its tiered tolerances) conceptually and structurally separate from this simpler count-only concern, per the roadmap's own observation that "serve counts ... need no timestamps." |
-| Held-out clip discipline | Hard merge gate — it must pass — but a failure is a disclosed finding, not something chased with constant retuning | User confirmed — exempting it from the pass bar would make it decorative; but re-tuning `k`/the separation window in direct response to its specific failure is curve-fitting by another name and defeats its purpose. A real fix would require reconsidering the approach, which is out of scope for reactive tuning mid-phase. |
-| `negative_shadow_swing.MOV` expected count | `1`, documented as a known pose-only limitation | User confirmed — a ball-less shadow swing is genuinely indistinguishable from a real serve using only 2D pose (no ball detection reliably survives to gate on, per the roadmap's own 10.8%-presence finding). Scoping in a ball-based rejection signal here would expand this phase well beyond "fix the counting heuristic." |
+| Held-out clip discipline | Hard merge gate — every held-out clip must pass — but a failure is a disclosed finding, not something chased with constant retuning | User confirmed. The corpus ended up with **three** held-out clips (3-serve/60fps, 4-serve/30fps, 5-serve/60fps) rather than the one originally scoped — all three follow the same discipline: exempting them from the pass bar would make them decorative, but re-tuning `k`/the separation window in direct response to a specific held-out failure is curve-fitting by another name. A real fix would require reconsidering the approach, out of scope for reactive tuning mid-phase. |
+| `count` field semantics | **Always the number of real serves actually in the footage**, regardless of `type` — not a purity marker for negative-type clips | User corrected the original design: `tosscatch`/`ballbounce`/`shadowswing` clips are not pure negative recordings, they mix real serves with the named distractor motion in the same continuous clip (e.g. `open_right_shadowswing_2serve_..._galdi.MOV` contains 2 real serves plus some number of shadow-swing reps). This makes `count` uniformly meaningful across every `type` and lets `expected_count` in the ground truth equal the filename's `count` by construction in every case but one (see next row) — a simpler, more consistent design than the original content-count/detection-target split. |
+| Shadow-swing clip's merge-gate treatment | `expected_count: 2` (matches its real-serve count) but `blocking: false` — a disclosed, non-enforced check | User confirmed. A ball-less shadow-swing rep is genuinely indistinguishable from a real serve using only 2D pose (no ball detection reliably survives to gate on, per the roadmap's own 10.8%-presence finding), so the algorithm will plausibly count the mixed-in shadow-swing reps too and land above 2. Treating this the same as every other hard-blocking row would make the merge gate unwinnable by a limitation this phase's design has already decided not to chase (mirrors the earlier, still-standing decision not to scope in a ball-based rejection signal). Every other negative-type clip (`tosscatch`, `ballbounce`) stays a hard gate — their distractor motions are exactly what the body-relative floor is designed to filter, so failing there is a genuine defect, not an inherent limitation. |
 | Sweep tool caching | Gitignored on-disk cache under `calibration_data/.keypoint_cache/`, keyed per video | Corpus videos require running the real pose + object-detection models once each; without caching, every parameter guess during calibration re-pays that cost across the whole corpus. |
 
 ## Context
