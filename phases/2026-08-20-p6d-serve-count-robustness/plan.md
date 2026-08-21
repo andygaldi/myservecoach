@@ -3,7 +3,7 @@
 > **Lite-isolation note:** no group touches Lite code. `segment_serves` is Pro-2D-only; its public
 > signature and `SegmentResponse` wire shape are unchanged throughout.
 
-> **Held-out discipline (applies to Group 6):** each of the corpus's three held-out clips'
+> **Held-out discipline (applies to Group 6):** each of the corpus's seven held-out clips'
 > expected count must pass, but its result must never be used to justify a constant change. If any
 > fails after Groups 1–5 are otherwise calibrated and green, record the failure in `validation.md`
 > run notes as a disclosed finding — do not adjust `HITTING_WRIST_FLOOR_K` or
@@ -19,42 +19,38 @@
 1. `backend/tools/calibration_data/serve_segmentation_corpus/` already exists — the user has placed
    the full corpus (15 files; verified against real file metadata, every `fps`/`res` token
    matches). No file placement work remains in this group.
-2. `git mv` the four legacy candidate clips into the convention
-   (`{view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV`). Two of the four collide
-   exactly (same view/hand/type/count/fps/res/name) with a file the user already placed, so each
-   gets a disambiguating `variant` suffix instead of overwriting a real corpus entry:
+2. The four legacy candidate clips have already been renamed into the convention
+   (`{view}_{hand}_{type}_{count}_{fps}_{res}_{name}[_{variant}].MOV`) and moved into
+   `serve_segmentation_corpus/` — the user placed them there as **held-out** entries (`variant`
+   ending in `holdout`) rather than as the plain `a`/`b`/`c`/`legacy` variants originally sketched
+   for this step:
    ```
-   git mv backend/tools/calibration_data/test_2_serve_clip_c.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_c.MOV
-   git mv backend/tools/calibration_data/test_2_serve_clip_a.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_a.MOV
-   git mv backend/tools/calibration_data/test_2_serve_clip_b.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_b.MOV
-   git mv backend/tools/calibration_data/new_3_serve_clip.MOV backend/tools/calibration_data/serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_legacy.MOV
+   test_2_serve_clip_c.MOV  -> open_right_flat_2serve_30fps_720x1280_galdi_holdout.MOV
+   test_2_serve_clip_a.MOV  -> open_right_flat_2serve_60fps_2160x3840_galdi_holdout.MOV
+   test_2_serve_clip_b.MOV  -> open_right_flat_2serve_60fps_1080x1920_galdi_holdout.MOV
+   new_3_serve_clip.MOV     -> open_right_flat_3serve_60fps_1080x1920_galdi_holdout_b.MOV
    ```
-   (`test_2_serve_clip_c.MOV`'s target uses `_c` since it's genuinely the third of that historical
-   trio; `new_3_serve_clip.MOV` gets `_legacy` rather than `_c` since it was never part of that
-   trio and reusing `_c` there would misleadingly imply it was.)
-   Before running these, re-verify no filename collision exists against the corpus as it actually
-   stands at implementation time (the table below) — if the user has added more files since this
-   plan was written, re-check. (These paths are gitignored — `git mv` will report the rename but
-   the files themselves are not tracked; this step is a plain filesystem rename that stays
-   consistent with git's view either way.) Leave `calibration_data/ag_three_serves.MOV` untouched —
-   the naming convention applies only to `serve_segmentation_corpus/`, not repo-wide (see
-   requirements.md Key Decisions).
+   (`new_3_serve_clip.MOV` collides with the already-present
+   `open_right_flat_3serve_60fps_1080x1920_galdi_holdout.MOV`, hence the `_b` second-level
+   disambiguator on top of `holdout`.) No further file-placement work remains in this group.
+   `calibration_data/ag_three_serves.MOV` remains untouched — the naming convention applies only to
+   `serve_segmentation_corpus/`, not repo-wide (see requirements.md Key Decisions).
 3. Create `backend/tools/segmentation_count_ground_truth.json`:
    ```json
    {
      "videos": {
        "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi.MOV": {"expected_count": 2, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_c.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_holdout.MOV": {"expected_count": 2, "held_out": true},
        "serve_segmentation_corpus/open_right_flat_2serve_30fps_1080x1920_galdi.MOV": {"expected_count": 2, "held_out": false},
        "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi.MOV": {"expected_count": 2, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_a.MOV": {"expected_count": 2, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_b.MOV": {"expected_count": 2, "held_out": false},
+       "serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_holdout.MOV": {"expected_count": 2, "held_out": true},
+       "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_holdout.MOV": {"expected_count": 2, "held_out": true},
        "ag_three_serves.MOV": {"expected_count": 3, "held_out": false},
        "serve_segmentation_corpus/open_right_flat_3serve_30fps_720x1280_galdi.MOV": {"expected_count": 3, "held_out": false},
        "serve_segmentation_corpus/open_right_flat_3serve_30fps_1080x1920_galdi.MOV": {"expected_count": 3, "held_out": false},
        "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi.MOV": {"expected_count": 3, "held_out": false},
-       "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_legacy.MOV": {"expected_count": 3, "held_out": false},
        "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_holdout.MOV": {"expected_count": 3, "held_out": true},
+       "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_holdout_b.MOV": {"expected_count": 3, "held_out": true},
        "serve_segmentation_corpus/open_right_flat_4serve_30fps_1080x1920_galdi_holdout.MOV": {"expected_count": 4, "held_out": true},
        "serve_segmentation_corpus/open_right_flat_4serve_60fps_1080x1920_galdi.MOV": {"expected_count": 4, "held_out": false},
        "serve_segmentation_corpus/open_right_flat_5serve_30fps_720x1280_galdi.MOV": {"expected_count": 5, "held_out": false},
@@ -251,7 +247,7 @@
 25. Pick the best-scoring `(floor_k, min_peak_separation_seconds)` combination over the
     **non-held-out** corpus and update `HITTING_WRIST_FLOOR_K`/`MIN_PEAK_SEPARATION_SECONDS` in
     `phases.py` to match.
-26. Run `python backend/tools/segmentation_report.py --score` (full corpus, including all three
+26. Run `python backend/tools/segmentation_report.py --score` (full corpus, including all seven
     held-out clips) with the chosen constants. Every row with `blocking: true` (the default) —
     whether held-out or not — must be `PASS`; the shadow-swing row (`blocking: false`) is recorded
     but does not gate. Held-out rows are a hard gate too (see the plan-level Held-out discipline

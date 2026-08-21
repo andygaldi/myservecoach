@@ -7,7 +7,7 @@ count-by-presence (hitting-wrist height peaks). The defect, root cause, and chos
 settled in `specs/roadmap.md`'s P6d entry — this phase implements that approach, it does not
 re-derive it. Velocity-based rest detection is demoted from *deciding how many serves there are*
 to *placing the boundary* between two already-counted serves. A new, hand-recorded footage corpus
-(fps matrix, a held-out clip, and negative cases) is a blocking prerequisite for calibrating and
+(fps matrix, held-out clips, and negative cases) is a blocking prerequisite for calibrating and
 verifying the new heuristic, and this phase also builds the tooling (a `--score` mode and a
 keypoint-caching sweep tool) needed to calibrate against it without re-running pose/detection
 inference on every parameter guess.
@@ -38,16 +38,18 @@ inference on every parameter guess.
   Every field value is itself separator-free (no embedded `_`) so the filename stays mechanically
   parseable by a plain `.split("_")`, not just greppable by eye — this is what makes the convention
   usable by future tooling, not only humans skimming a directory listing.
-- Existing clips renamed into the convention (`git mv`, unreferenced elsewhere in code — verified
-  by repo-wide grep). Two of the four collide with a file the user separately placed at the exact
-  same view/hand/type/count/fps/res/name — both get a disambiguating `variant` suffix instead of
-  overwriting a real corpus entry:
-  | Current path | New path |
+- Existing clips renamed into the convention (unreferenced elsewhere in code — verified by
+  repo-wide grep) and moved into `serve_segmentation_corpus/`. The user placed all four as
+  **held-out** entries (`variant` ending in `holdout`) rather than as plain corpus additions. Two
+  of the four collide with a file the user separately placed at the exact same
+  view/hand/type/count/fps/res/name — both get a disambiguating `variant` suffix on top of
+  `holdout` instead of overwriting a real corpus entry:
+  | Original path | New path |
   |---|---|
-  | `calibration_data/test_2_serve_clip_c.MOV` (2 serves, 30fps, 720×1280) | `serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_c.MOV` **(`_c` — collides with the user's own `..._galdi.MOV` otherwise)** |
-  | `calibration_data/test_2_serve_clip_a.MOV` (2 serves, 60fps, 2160×3840) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_a.MOV` |
-  | `calibration_data/test_2_serve_clip_b.MOV` (2 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_b.MOV` |
-  | `calibration_data/new_3_serve_clip.MOV` (3 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_legacy.MOV` **(`_legacy` — collides with the user's own `..._galdi.MOV` otherwise; not `_c`, to avoid implying it's part of the `a`/`b`/`c` trio above, which it never was)** |
+  | `calibration_data/test_2_serve_clip_c.MOV` (2 serves, 30fps, 720×1280) | `serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_holdout.MOV` |
+  | `calibration_data/test_2_serve_clip_a.MOV` (2 serves, 60fps, 2160×3840) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_holdout.MOV` |
+  | `calibration_data/test_2_serve_clip_b.MOV` (2 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_holdout.MOV` |
+  | `calibration_data/new_3_serve_clip.MOV` (3 serves, 60fps, 1080×1920) | `serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_holdout_b.MOV` **(`_holdout_b` — collides with the real corpus's own `..._galdi_holdout.MOV` at the same view/hand/type/count/fps/res/name otherwise)** |
 - `calibration_data/ag_three_serves.MOV` (3 serves, 30fps) is **not** moved or renamed — it is
   referenced by its historical name across `phases.py` comments, `segmentation_ground_truth.json`,
   and multiple prior phase triads. It fulfills the 3-serve/30fps matrix cell in place, outside the
@@ -58,12 +60,16 @@ inference on every parameter guess.
   | Filename | Real serves | Distractor motion | fps | Resolution | Held out |
   |---|---|---|---|---|---|
   | `open_right_flat_2serve_30fps_720x1280_galdi.MOV` | 2 | — | 30 | 720×1280 | no |
+  | `open_right_flat_2serve_30fps_720x1280_galdi_holdout.MOV` | 2 | — | 30 | 720×1280 | **yes** |
   | `open_right_flat_2serve_30fps_1080x1920_galdi.MOV` | 2 | — | 30 | 1080×1920 | no |
   | `open_right_flat_2serve_60fps_1080x1920_galdi.MOV` | 2 | — | 60 | 1080×1920 | no |
+  | `open_right_flat_2serve_60fps_1080x1920_galdi_holdout.MOV` | 2 | — | 60 | 1080×1920 | **yes** |
+  | `open_right_flat_2serve_60fps_2160x3840_galdi_holdout.MOV` | 2 | — | 60 | 2160×3840 | **yes** |
   | `open_right_flat_3serve_30fps_720x1280_galdi.MOV` | 3 | — | 30 | 720×1280 | no |
   | `open_right_flat_3serve_30fps_1080x1920_galdi.MOV` | 3 | — | 30 | 1080×1920 | no |
   | `open_right_flat_3serve_60fps_1080x1920_galdi.MOV` | 3 | — | 60 | 1080×1920 | no |
   | `open_right_flat_3serve_60fps_1080x1920_galdi_holdout.MOV` | 3 | — | 60 | 1080×1920 | **yes** |
+  | `open_right_flat_3serve_60fps_1080x1920_galdi_holdout_b.MOV` | 3 | — | 60 | 1080×1920 | **yes** |
   | `open_right_flat_4serve_30fps_1080x1920_galdi_holdout.MOV` | 4 | — | 30 | 1080×1920 | **yes** |
   | `open_right_flat_4serve_60fps_1080x1920_galdi.MOV` | 4 | — | 60 | 1080×1920 | no |
   | `open_right_flat_5serve_30fps_720x1280_galdi.MOV` | 5 | — | 30 | 720×1280 | no |
@@ -73,8 +79,9 @@ inference on every parameter guess.
   | `open_right_ballbounce_3serve_30fps_720x1280_galdi.MOV` | 3 | ball-bounce routine | 30 | 720×1280 | no |
   | `open_right_shadowswing_2serve_30fps_720x1280_galdi.MOV` | 2 | shadow-swing reps | 30 | 720×1280 | no (see Key Decisions — this clip's count-match is a disclosed, non-blocking check) |
 
-  This exceeds the originally-scoped 2/3/5-serve × 30/60fps matrix in two ways, both welcome: a
-  bonus 4-serve cell at both fps, and three holdout clips (3-serve/60fps, 4-serve/30fps,
+  This exceeds the originally-scoped 2/3/5-serve × 30/60fps matrix in several ways, all welcome: a
+  bonus 4-serve cell at both fps, a bonus 2160×3840 resolution, and seven holdout clips in total
+  (2-serve at 30fps/720×1280, 60fps/1080×1920, and 60fps/2160×3840; 3-serve/60fps ×2; 4-serve/30fps;
   5-serve/60fps) instead of one — no plain (non-holdout) 5-serve/60fps clip exists, so that cell is
   evaluated only after constants are picked, never used to tune them (see Key Decisions).
 - If a corpus file the plan expects turns out to be missing when the calibration/verification task
@@ -214,7 +221,7 @@ inference on every parameter guess.
 | Convention scope | Applies to the new `serve_segmentation_corpus/` only, for now | User confirmed — repo-wide adoption would mean renaming `ag_three_serves.MOV`, `alcaraz_serve_1.mov`, `vesa_slow_mo.mov`, and `serve_1-4.mov` and updating every place that names them (code comments, the existing ground-truth JSON, prior phase triads); real churn and real breakage risk, better done as its own deliberate pass than folded into this phase's scope. |
 | `holdout` marker | Lives in the `variant` slot, not a separate prefix | Makes a held-out clip's filename an instance of the same schema rather than a special case living outside it. (Spelled `holdout`, not the `heldout` this spec originally specified — conformed to match the files the user actually placed rather than requesting a rename of already-recorded video files.) |
 | Count ground truth format | New, separate `segmentation_count_ground_truth.json` | User confirmed — keeps the existing six-phase-timestamp ground truth (with its tiered tolerances) conceptually and structurally separate from this simpler count-only concern, per the roadmap's own observation that "serve counts ... need no timestamps." |
-| Held-out clip discipline | Hard merge gate — every held-out clip must pass — but a failure is a disclosed finding, not something chased with constant retuning | User confirmed. The corpus ended up with **three** held-out clips (3-serve/60fps, 4-serve/30fps, 5-serve/60fps) rather than the one originally scoped — all three follow the same discipline: exempting them from the pass bar would make them decorative, but re-tuning `k`/the separation window in direct response to a specific held-out failure is curve-fitting by another name. A real fix would require reconsidering the approach, out of scope for reactive tuning mid-phase. |
+| Held-out clip discipline | Hard merge gate — every held-out clip must pass — but a failure is a disclosed finding, not something chased with constant retuning | User confirmed. The corpus ended up with **seven** held-out clips (2-serve at 30fps/720×1280, 60fps/1080×1920, and 60fps/2160×3840; 3-serve/60fps ×2; 4-serve/30fps; 5-serve/60fps) rather than the one originally scoped — all seven follow the same discipline: exempting them from the pass bar would make them decorative, but re-tuning `k`/the separation window in direct response to a specific held-out failure is curve-fitting by another name. A real fix would require reconsidering the approach, out of scope for reactive tuning mid-phase. |
 | `count` field semantics | **Always the number of real serves actually in the footage**, regardless of `type` — not a purity marker for negative-type clips | User corrected the original design: `tosscatch`/`ballbounce`/`shadowswing` clips are not pure negative recordings, they mix real serves with the named distractor motion in the same continuous clip (e.g. `open_right_shadowswing_2serve_..._galdi.MOV` contains 2 real serves plus some number of shadow-swing reps). This makes `count` uniformly meaningful across every `type` and lets `expected_count` in the ground truth equal the filename's `count` by construction in every case but one (see next row) — a simpler, more consistent design than the original content-count/detection-target split. |
 | Shadow-swing clip's merge-gate treatment | `expected_count: 2` (matches its real-serve count) but `blocking: false` — a disclosed, non-enforced check | User confirmed. A ball-less shadow-swing rep is genuinely indistinguishable from a real serve using only 2D pose (no ball detection reliably survives to gate on, per the roadmap's own 10.8%-presence finding), so the algorithm will plausibly count the mixed-in shadow-swing reps too and land above 2. Treating this the same as every other hard-blocking row would make the merge gate unwinnable by a limitation this phase's design has already decided not to chase (mirrors the earlier, still-standing decision not to scope in a ball-based rejection signal). Every other negative-type clip (`tosscatch`, `ballbounce`) stays a hard gate — their distractor motions are exactly what the body-relative floor is designed to filter, so failing there is a genuine defect, not an inherent limitation. |
 | Sweep tool caching | Gitignored on-disk cache under `calibration_data/.keypoint_cache/`, keyed per video | Corpus videos require running the real pose + object-detection models once each; without caching, every parameter guess during calibration re-pays that cost across the whole corpus. |
