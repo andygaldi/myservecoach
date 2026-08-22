@@ -92,4 +92,70 @@ Minimum bar for squash-merging into `develop`:
 
 **Run notes:**
 
-_(Filled in during `/phase` and `/phase-review`.)_
+Groups 1–5 implemented and verified via `scripts/verify.sh backend` (green, 202 passed / 3
+skipped) before starting Group 6.
+
+**Sweep grid (initial pass, `segmentation_sweep.py`):** `--floor-k 0.05,0.1,0.15,0.2,0.25
+--min-separation 0.3,0.4,0.5,0.6,0.8,1.0` against the 13 non-held-out corpus videos (cache-cold
+first pass; real inference across all 13 took roughly an hour of wall-clock CPU time, dominated by
+one clip — `open_right_ballbounce_3serve_30fps_720x1280_galdi.MOV` — taking disproportionately
+long relative to its frame count, cause not further investigated since it completed). Best score:
+12/13 matches, achieved by several combinations including `floor_k=0.15,
+min_peak_separation_seconds ∈ {0.5, 0.6, 0.8, 1.0}` (the Group 4 defaults' column). The one
+non-matching row at every combination in this grid was the shadow-swing clip
+(`blocking: false`), exactly the documented, non-gating known limitation — not a real failure.
+`(0.15, 0.6)` (the Group 4 defaults) was confirmed to already sit at this ceiling: 12/12 on the
+*blocking* non-held-out rows.
+
+**`--score` full corpus (first pass, `floor_k=0.15, min_peak_separation_seconds=0.6`):** all 19
+corpus rows with `blocking: true` PASS, including all 7 held-out clips
+(`open_right_flat_2serve_30fps_720x1280_galdi_holdout.MOV`,
+`open_right_flat_2serve_60fps_1080x1920_galdi_holdout.MOV`,
+`open_right_flat_2serve_60fps_2160x3840_galdi_holdout.MOV`,
+`open_right_flat_3serve_60fps_1080x1920_galdi_holdout.MOV`,
+`open_right_flat_3serve_60fps_1080x1920_galdi_holdout_b.MOV`,
+`open_right_flat_4serve_30fps_1080x1920_galdi_holdout.MOV`,
+`open_right_flat_5serve_60fps_1080x1920_galdi_holdout.MOV`). `tosscatch`/`ballbounce` both PASS
+(3/3), confirming the body-relative floor correctly ignores the mixed-in distractor motion in
+both. Shadow-swing: expected 2, actual 3 — `[KNOWN LIMITATION]`, non-blocking, recorded per the
+merge criteria's explicit exception.
+
+**Six-phase regression suite — genuine defect found and fixed.** Running
+`RUN_MODEL_INTEGRATION_TESTS=1 pytest backend/tests/test_segmentation_ground_truth.py -v` at
+`(0.15, 0.6)` surfaced a real regression: `vesa_slow_mo.mov` (a legacy slow-motion clip, not part
+of the new corpus) — expected 1 serve, detected 4. Root-caused by re-running the identical suite
+against the pre-P6d baseline (`git stash` on `phases.py` only): baseline correctly counted 1 serve
+for this clip (only a pre-existing `contact`-phase timing miss), confirming this was a rewrite
+regression, not a stale ground-truth entry. Cause: a single slow-motion swing's wrist trajectory
+produces several weak, closely-spaced local maxima above the body-relative floor (scores as low as
+0.004–0.13) that `min_peak_separation_seconds=0.6` was too tight to collapse into one accepted
+peak.
+
+Per plan.md step 28 ("widen the grid ... but do not special-case a single clip's constants"), the
+grid was widened (`floor_k` up to 0.35, `min_peak_separation_seconds` up to 3.0) and scored against
+both the cached P6d corpus and a locally-cached `vesa_slow_mo.mov`. Result: holding
+`floor_k=0.15` and raising `min_peak_separation_seconds` to `1.5` fixes `vesa_slow_mo.mov` (1
+detected) while holding the P6d blocking corpus at its prior ceiling (12/12) — confirmed by
+re-running the full `--score` pass (identical result to the `(0.15, 0.6)` table above: 19/19
+blocking PASS, 7/7 held-out PASS, shadow-swing unchanged at actual=3) and the six-phase suite
+again.
+
+**Final constants: `HITTING_WRIST_FLOOR_K = 0.15`, `MIN_PEAK_SEPARATION_SECONDS = 1.5`.**
+
+**Six-phase suite, final state:** still not fully green — `serve_2.mov` (`trophy_pose`,
+delta=0.205 > tolerance=0.13), `alcaraz_serve_1.mov` (`start`/`release`/`racket_drop`/`finish`, all
+failing), and `vesa_slow_mo.mov` (`contact`, delta=0.137 > tolerance=0.075) still fail. All three
+were re-verified against the pre-P6d baseline run and are **byte-identical** (same deltas, same
+phases) to failures that already existed before this phase's changes — pre-existing
+`detect_phases` six-phase heuristic issues, explicitly out of scope per requirements.md ("Out of
+Scope: `detect_phases`'s six-phase heuristics ... a defect there is P4b/P6b's domain, not this
+one's"). Zero *new* failures remain after the fix; the plan's "must stay green" precondition
+(step 27) turned out to already be false at baseline for reasons unrelated to serve counting — this
+is disclosed here rather than silently redefined. The count-specific regression this phase owns
+(`vesa_slow_mo.mov`'s serve count) is resolved.
+
+Raising `min_peak_separation_seconds` to 1.5 required widening several fast-unit-test fixtures in
+`test_segment_serves.py`, `test_segment_endpoint.py`, and `test_segmentation_report.py` whose
+two-peak gaps were sized for the old 0.6s threshold (~0.85s real gap) and no longer cleared 1.5s;
+re-widened to ~2.0–2.2s real gaps with margin. `scripts/verify.sh backend` confirmed green
+afterward (202 passed, 3 skipped) — same count as before Group 6, no coverage lost.

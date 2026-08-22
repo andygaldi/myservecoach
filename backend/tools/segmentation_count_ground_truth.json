@@ -1,0 +1,29 @@
+{
+  "videos": {
+    "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi.MOV": {"expected_count": 2, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_2serve_30fps_720x1280_galdi_holdout.MOV": {"expected_count": 2, "held_out": true},
+    "serve_segmentation_corpus/open_right_flat_2serve_30fps_1080x1920_galdi.MOV": {"expected_count": 2, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi.MOV": {"expected_count": 2, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_2serve_60fps_2160x3840_galdi_holdout.MOV": {"expected_count": 2, "held_out": true},
+    "serve_segmentation_corpus/open_right_flat_2serve_60fps_1080x1920_galdi_holdout.MOV": {"expected_count": 2, "held_out": true},
+    "ag_three_serves.MOV": {"expected_count": 3, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_3serve_30fps_720x1280_galdi.MOV": {"expected_count": 3, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_3serve_30fps_1080x1920_galdi.MOV": {"expected_count": 3, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi.MOV": {"expected_count": 3, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_holdout.MOV": {"expected_count": 3, "held_out": true},
+    "serve_segmentation_corpus/open_right_flat_3serve_60fps_1080x1920_galdi_holdout_b.MOV": {"expected_count": 3, "held_out": true},
+    "serve_segmentation_corpus/open_right_flat_4serve_30fps_1080x1920_galdi_holdout.MOV": {"expected_count": 4, "held_out": true},
+    "serve_segmentation_corpus/open_right_flat_4serve_60fps_1080x1920_galdi.MOV": {"expected_count": 4, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_5serve_30fps_720x1280_galdi.MOV": {"expected_count": 5, "held_out": false},
+    "serve_segmentation_corpus/open_right_flat_5serve_60fps_1080x1920_galdi_holdout.MOV": {"expected_count": 5, "held_out": true},
+    "serve_segmentation_corpus/open_right_idle_0serve_30fps_720x1280_galdi.MOV": {"expected_count": 0, "held_out": false},
+    "serve_segmentation_corpus/open_right_tosscatch_3serve_30fps_720x1280_galdi.MOV": {"expected_count": 3, "held_out": false},
+    "serve_segmentation_corpus/open_right_ballbounce_3serve_30fps_720x1280_galdi.MOV": {"expected_count": 3, "held_out": false},
+    "serve_segmentation_corpus/open_right_shadowswing_2serve_30fps_720x1280_galdi.MOV": {
+      "expected_count": 2,
+      "held_out": false,
+      "blocking": false,
+      "_note": "Contains 2 real serves plus an unspecified number of ball-less shadow-swing reps. A shadow swing is pose-indistinguishable from a real serve (no ball signal to gate on), so segment_serves is expected to plausibly over-count. Documented, non-blocking limitation — see requirements.md Key Decisions. Every other negative-type clip (tosscatch, ballbounce) IS a hard blocking gate: their distractor motions are exactly what the body-relative floor is designed to filter."
+    }
+  }
+}

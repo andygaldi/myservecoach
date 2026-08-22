@@ -28,6 +28,7 @@ Output:
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -44,6 +45,11 @@ from app.services.pose_model import get_pose_model
 from tools.calibration_report import _img_tag
 from tools.pose_benchmark import _resolve_videos, _TOOLS_DIR, draw_overlay, sample_video_frames
 
+
+# Stride used by score_videos — fixed rather than user-configurable, since --score exists to
+# gate on serve *count* across the whole corpus with one consistent sampling rate, not to explore
+# stride sensitivity (see plan.md's explicit no-stride-sweep scope decision).
+DEFAULT_SCORE_STRIDE = 2
 
 _PHASE_LABELS: dict[str, str] = {
     "start": "Start",
@@ -188,6 +194,85 @@ def run_segmentation_report(
     return report_paths
 
 
+def score_videos(
+    video_paths: list[Path],
+    ground_truth: dict,
+    pose_model,
+    detection_model,
+) -> list[dict]:
+    """Run segment_serves over every video in ground_truth['videos'] and compare the detected
+    segment count to expected_count. Returns one result dict per ground-truth entry:
+    {video_name, expected_count, actual_count, held_out, blocking, status} where status is
+    "PASS" / "FAIL" / "MISSING" (file not found on disk). `blocking` defaults to True when a
+    ground-truth entry omits the field."""
+    results: list[dict] = []
+    videos: dict = ground_truth["videos"]
+
+    for video_name, entry in videos.items():
+        expected_count = entry["expected_count"]
+        held_out = entry.get("held_out", False)
+        blocking = entry.get("blocking", True)
+
+        video_path = _TOOLS_DIR / "calibration_data" / video_name
+        if video_path not in video_paths:
+            results.append(
+                {
+                    "video_name": video_name,
+                    "expected_count": expected_count,
+                    "actual_count": None,
+                    "held_out": held_out,
+                    "blocking": blocking,
+                    "status": "MISSING",
+                }
+            )
+            continue
+
+        frames, _, _ = build_frame_sequence(video_path, DEFAULT_SCORE_STRIDE, pose_model, detection_model)
+        actual_count = len(segment_serves(frames))
+        status = "PASS" if actual_count == expected_count else "FAIL"
+        results.append(
+            {
+                "video_name": video_name,
+                "expected_count": expected_count,
+                "actual_count": actual_count,
+                "held_out": held_out,
+                "blocking": blocking,
+                "status": status,
+            }
+        )
+
+    return results
+
+
+def print_score_table(results: list[dict]) -> None:
+    """Print one row per score_videos result, flagging held-out/non-blocking/missing rows."""
+    blocking_total = 0
+    blocking_passed = 0
+    missing = 0
+
+    for result in results:
+        markers = []
+        if result["held_out"]:
+            markers.append("[HELD OUT]")
+        if not result["blocking"]:
+            markers.append("[KNOWN LIMITATION]")
+        marker_str = " ".join(markers)
+
+        if result["status"] == "MISSING":
+            missing += 1
+        elif result["blocking"]:
+            blocking_total += 1
+            if result["status"] == "PASS":
+                blocking_passed += 1
+
+        print(
+            f"  {result['status']:<7} {result['video_name']} "
+            f"(expected {result['expected_count']}, actual {result['actual_count']}) {marker_str}".rstrip()
+        )
+
+    print(f"\n{blocking_passed}/{blocking_total} blocking passed, {missing} missing, showing held-out/non-blocking separately")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -209,6 +294,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--report-dir", type=Path, default=_TOOLS_DIR / "calibration_data",
         help="Parent directory under which each <video_stem>_segmentation/ report is written.",
     )
+    parser.add_argument(
+        "--score", action="store_true",
+        help="Score segment_serves' detected count against segmentation_count_ground_truth.json "
+        "instead of (or in addition to) writing the HTML report.",
+    )
+    parser.add_argument(
+        "--ground-truth", type=Path, default=_TOOLS_DIR / "segmentation_count_ground_truth.json",
+        help="Path to the count ground-truth JSON used by --score.",
+    )
     return parser
 
 
@@ -216,14 +310,31 @@ def main() -> None:
     parser = _build_arg_parser()
     args = parser.parse_args()
 
+    pose_model = get_pose_model()
+    detection_model = get_object_detection_model()
+
+    if args.score:
+        ground_truth = json.loads(args.ground_truth.read_text())
+        gt_video_paths = [
+            _TOOLS_DIR / "calibration_data" / name for name in ground_truth["videos"]
+        ]
+        video_paths = [p for p in gt_video_paths if p.exists()]
+
+        results = score_videos(video_paths, ground_truth, pose_model, detection_model)
+        print_score_table(results)
+
+        exit_blocking = any(
+            r["status"] != "PASS" and r["blocking"] and not r["held_out"] for r in results
+        )
+        if exit_blocking:
+            sys.exit(1)
+        return
+
     video_paths = _resolve_videos(args.videos)
     if not video_paths:
         sys.exit(f"error: no videos matched pattern: {args.videos}")
 
     print(f"Found {len(video_paths)} video(s): {[p.name for p in video_paths]}")
-
-    pose_model = get_pose_model()
-    detection_model = get_object_detection_model()
 
     report_paths = run_segmentation_report(
         video_paths, args.stride, pose_model, detection_model, args.report_dir

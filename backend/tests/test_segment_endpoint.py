@@ -12,36 +12,50 @@ def transport():
     return ASGITransport(app=app)
 
 
-def _kp(x: float, y: float = 0.5, confidence: float = 0.9) -> dict:
+# Fixed body-relative geometry: a constant neck/pelvis pair sets a constant floor (see
+# _hitting_wrist_floor_score in app.engine.phases), and only the hitting wrist's height varies.
+NECK_Y = 0.7
+PELVIS_Y = 0.4
+IDLE_WRIST_Y = 0.5  # well below the floor — resting arm height, never a peak candidate
+PEAK_WRIST_Y = 0.95  # well above the floor — a genuine serve's contact-height wrist
+
+
+def _kp(y: float, x: float = 0.5, confidence: float = 0.9) -> dict:
     return {"x": x, "y": y, "confidence": confidence}
 
 
-def _positioned_frame(x: float, timestamp: float) -> dict:
-    frame = make_frame({"right_wrist": _kp(x)}, timestamp)
+def _positioned_frame(wrist_y: float, timestamp: float) -> dict:
+    frame = make_frame(
+        {"neck": _kp(NECK_Y), "pelvis": _kp(PELVIS_Y), "right_wrist": _kp(wrist_y)}, timestamp
+    )
     return frame.model_dump()
 
 
-def _active_burst(start_x: float, x_step: float, count: int, start_index: int, fps: float) -> list:
-    return [
-        _positioned_frame(start_x + x_step * i, (start_index + i) / fps)
-        for i in range(count)
-    ]
+def _hump(peak_y: float, count: int, start_index: int, fps: float, base_y: float = IDLE_WRIST_Y) -> list:
+    """`count` frames rising linearly to `peak_y` at the midpoint, then falling back to `base_y`."""
+    frames = []
+    for i in range(count):
+        progress = i / (count - 1) if count > 1 else 1.0
+        triangle = 1 - abs(2 * progress - 1)  # 0 -> 1 -> 0
+        wrist_y = base_y + (peak_y - base_y) * triangle
+        frames.append(_positioned_frame(wrist_y, (start_index + i) / fps))
+    return frames
 
 
-def _rest_burst(x: float, count: int, start_index: int, fps: float) -> list:
-    return [_positioned_frame(x, (start_index + i) / fps) for i in range(count)]
+def _rest_burst(wrist_y: float, count: int, start_index: int, fps: float) -> list:
+    return [_positioned_frame(wrist_y, (start_index + i) / fps) for i in range(count)]
 
 
 def _build_two_serve_sequence(fps: float = 30.0) -> list:
-    active1 = _active_burst(start_x=0.0, x_step=0.1, count=6, start_index=0, fps=fps)
-    rest = _rest_burst(x=0.5, count=14, start_index=6, fps=fps)
-    active2 = _active_burst(start_x=0.6, x_step=0.1, count=6, start_index=20, fps=fps)
-    return active1 + rest + active2
+    hump1 = _hump(peak_y=PEAK_WRIST_Y, count=6, start_index=0, fps=fps)
+    rest = _rest_burst(wrist_y=IDLE_WRIST_Y, count=60, start_index=6, fps=fps)
+    hump2 = _hump(peak_y=PEAK_WRIST_Y, count=6, start_index=66, fps=fps)
+    return hump1 + rest + hump2
 
 
 @pytest.mark.asyncio
 async def test_single_continuous_serve_returns_one_segment(transport):
-    frames = _active_burst(start_x=0.0, x_step=0.1, count=10, start_index=0, fps=30.0)
+    frames = _hump(peak_y=PEAK_WRIST_Y, count=10, start_index=0, fps=30.0)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/v1/segment", json={"frames": frames})
     assert response.status_code == 200
