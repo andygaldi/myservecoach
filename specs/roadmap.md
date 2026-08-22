@@ -203,7 +203,7 @@ ideal vertical for `trophy_toss_arm_vertical`); no overlay renderer exists in iO
 delivers P13's "skeleton on results-screen keyframes" ahead of schedule — P13 is narrowed
 accordingly (see below). Requires P6; benefits from P6b's cleaner segmentation.
 
-### Phase P6d — Serve Count Robustness
+### Phase P6d — Serve Count Robustness ✅
 
 Replaces gap-detection with event-counting as the source of the serve count. Scheduled ahead of P7 because P7's continuous multi-serve capture depends on the count being right more directly than anything else on the roadmap, and ahead of P7b so a second camera view isn't calibrated on top of a miscount.
 

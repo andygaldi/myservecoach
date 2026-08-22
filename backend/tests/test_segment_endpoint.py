@@ -4,7 +4,9 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 from app.engine.phases import segment_serves, slice_detections_by_segments
 from app.models import SegmentResponse
-from conftest import make_frame
+from conftest import IDLE_WRIST_Y, PEAK_WRIST_Y, make_frame
+from conftest import hump as _shared_hump
+from conftest import rest_burst as _shared_rest_burst
 
 
 @pytest.fixture
@@ -12,36 +14,27 @@ def transport():
     return ASGITransport(app=app)
 
 
-def _kp(x: float, y: float = 0.5, confidence: float = 0.9) -> dict:
-    return {"x": x, "y": y, "confidence": confidence}
+# This endpoint POSTs frames as JSON, so every fixture helper here wraps conftest's shared
+# Frame-returning geometry (see conftest.py for NECK_Y/PELVIS_Y/IDLE_WRIST_Y/PEAK_WRIST_Y, shared
+# with test_segment_serves.py) with a .model_dump() conversion to dicts.
+def _hump(peak_y: float, count: int, start_index: int, fps: float, **kwargs) -> list:
+    return [f.model_dump() for f in _shared_hump(peak_y, count, start_index, fps, **kwargs)]
 
 
-def _positioned_frame(x: float, timestamp: float) -> dict:
-    frame = make_frame({"right_wrist": _kp(x)}, timestamp)
-    return frame.model_dump()
-
-
-def _active_burst(start_x: float, x_step: float, count: int, start_index: int, fps: float) -> list:
-    return [
-        _positioned_frame(start_x + x_step * i, (start_index + i) / fps)
-        for i in range(count)
-    ]
-
-
-def _rest_burst(x: float, count: int, start_index: int, fps: float) -> list:
-    return [_positioned_frame(x, (start_index + i) / fps) for i in range(count)]
+def _rest_burst(wrist_y: float, count: int, start_index: int, fps: float) -> list:
+    return [f.model_dump() for f in _shared_rest_burst(wrist_y, count, start_index, fps)]
 
 
 def _build_two_serve_sequence(fps: float = 30.0) -> list:
-    active1 = _active_burst(start_x=0.0, x_step=0.1, count=6, start_index=0, fps=fps)
-    rest = _rest_burst(x=0.5, count=14, start_index=6, fps=fps)
-    active2 = _active_burst(start_x=0.6, x_step=0.1, count=6, start_index=20, fps=fps)
-    return active1 + rest + active2
+    hump1 = _hump(peak_y=PEAK_WRIST_Y, count=6, start_index=0, fps=fps)
+    rest = _rest_burst(wrist_y=IDLE_WRIST_Y, count=60, start_index=6, fps=fps)
+    hump2 = _hump(peak_y=PEAK_WRIST_Y, count=6, start_index=66, fps=fps)
+    return hump1 + rest + hump2
 
 
 @pytest.mark.asyncio
 async def test_single_continuous_serve_returns_one_segment(transport):
-    frames = _active_burst(start_x=0.0, x_step=0.1, count=10, start_index=0, fps=30.0)
+    frames = _hump(peak_y=PEAK_WRIST_Y, count=10, start_index=0, fps=30.0)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post("/v1/segment", json={"frames": frames})
     assert response.status_code == 200

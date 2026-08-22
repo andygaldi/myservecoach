@@ -10,18 +10,22 @@ from app.engine.angles import (
     MIN_CONFIDENCE,
 )
 
+# Hardcoded right-handed server. A wrong hitting side previously produced only wrong cues;
+# since P6d, segment_serves' serve *count* also derives from the hitting wrist, so a wrong
+# side now miscounts serves too. P7b promotes this from known limitation to prerequisite —
+# it must become configurable before behind-camera work, which can't assume handedness from
+# framing alone.
 HANDEDNESS: dict[str, str] = {"hitting": "right", "toss": "left"}
 
 MIN_REST_SECONDS = 0.3
 LOW_MOTION_VELOCITY_THRESHOLD = 0.03  # normalized units per second
-# A rest gap only counts as a serve boundary if the active run immediately preceding it lasted at
-# least this long — distinguishes a genuine completed swing (real serves run well over a second,
-# e.g. ~1.9s release-to-finish on real calibration footage) from a brief mid-routine fidget (a
-# single ball bounce or grip adjustment), which can otherwise cross MIN_REST_SECONDS on its own
-# pause and false-split one serve into two. Bounded below the tightest synthetic test fixture's
-# ~0.167s active burst (test_two_serves_separated_by_rest_gap_returns_two_segments) so existing
-# unit tests are unaffected.
-MIN_ACTIVE_RUN_SECONDS = 0.15
+# Calibrated against the real corpus in this phase's Group 6 (segmentation_sweep.py grid search);
+# see validation.md run notes for the full grid and how these were chosen. min_peak_separation was
+# widened past the corpus-only optimum (0.6) to 1.5 after the six-phase regression suite surfaced
+# vesa_slow_mo.mov: a single slow-motion serve's wrist trajectory produces several weak, closely-
+# spaced local maxima above the floor that a tighter window wrongly split into multiple serves.
+HITTING_WRIST_FLOOR_K = 0.15
+MIN_PEAK_SEPARATION_SECONDS = 1.5
 CONTACT_WRIST_WEIGHT = 0.5
 CONTACT_PROXIMITY_WEIGHT = 0.5
 TROPHY_HIP_WEIGHT = 0.5
@@ -62,51 +66,155 @@ def _frame_velocity(a: Frame, b: Frame) -> float:
     return mean_distance / dt if dt > 0 else mean_distance
 
 
+def _torso_length(frame: Frame) -> float | None:
+    """Vertical distance between the derived neck and pelvis midpoints, or None if either is
+    unavailable — the body-relative scale used to size the hitting-wrist floor."""
+    neck_y = keypoint_y(frame, "neck")
+    pelvis_y = keypoint_y(frame, "pelvis")
+    if neck_y is None or pelvis_y is None:
+        return None
+    return abs(neck_y - pelvis_y)
+
+
+def _hitting_wrist_floor_score(frame: Frame, hitting: str, floor_k: float) -> float | None:
+    """The hitting wrist's height above a body-relative floor (neck_y + floor_k * torso_length),
+    or None if any of neck/pelvis/{hitting}_wrist is unavailable. Positive means the wrist is
+    above the floor (y increases upward — see pose_model.py's coordinate convention); only
+    positive-score frames are peak candidates, which is what rejects a toss-and-catch (the toss
+    arm rises, the hitting arm does not)."""
+    neck_y = keypoint_y(frame, "neck")
+    torso_length = _torso_length(frame)
+    wrist_y = keypoint_y(frame, f"{hitting}_wrist")
+    if neck_y is None or torso_length is None or wrist_y is None:
+        return None
+    floor = neck_y + floor_k * torso_length
+    return wrist_y - floor
+
+
+def _find_serve_peaks(
+    frames: list[Frame], hitting: str, floor_k: float, min_peak_separation_seconds: float
+) -> list[int]:
+    """Frame indices of accepted serve peaks: local maxima of the positive hitting-wrist floor
+    score, greedily non-max-suppressed by descending score with a minimum real-seconds
+    separation between accepted peaks (fps-invariant by construction, same reasoning as
+    _frame_velocity's dt-normalization). Accepted peak count is the serve count."""
+    # Keep every frame's score, including negative ones — only missing neck/pelvis/wrist drops a
+    # frame from the series entirely. Negative-score runs between two humps are what lets two
+    # equal-height, widely-separated peaks be told apart below; filtering to positive scores here
+    # first would make them look like immediate (and thus wrongly mergeable) neighbors.
+    scores: dict[int, float] = {}
+    for i, frame in enumerate(frames):
+        score = _hitting_wrist_floor_score(frame, hitting, floor_k)
+        if score is not None:
+            scores[i] = score
+
+    if not scores:
+        return []
+
+    # Local maxima over the full scored series, comparing each frame to its nearest scored
+    # neighbors by position (not raw frame-index distance, since low-confidence frames may be
+    # missing) — mirrors _smooth_series' same positional-neighbor convention. Equal-score runs
+    # (e.g. a sustained high-wrist follow-through) are grouped into a single plateau first, so a
+    # wide flat run is counted as one peak rather than many. Only positive-score plateaus are
+    # ever accepted as peaks — this is the load-bearing hitting-side restriction that rejects a
+    # toss-and-catch (toss arm rises, hitting arm does not).
+    ordered = sorted(scores)
+    plateaus: list[list[int]] = []
+    for i in ordered:
+        if plateaus and scores[i] == scores[plateaus[-1][-1]]:
+            plateaus[-1].append(i)
+        else:
+            plateaus.append([i])
+
+    local_maxima: list[int] = []
+    for pos, plateau in enumerate(plateaus):
+        score = scores[plateau[0]]
+        if score <= 0:
+            continue
+        prev_score = scores[plateaus[pos - 1][-1]] if pos > 0 else None
+        next_score = scores[plateaus[pos + 1][0]] if pos < len(plateaus) - 1 else None
+        if (prev_score is None or score > prev_score) and (next_score is None or score > next_score):
+            local_maxima.append(plateau[len(plateau) // 2])
+
+    local_maxima.sort(key=lambda i: scores[i], reverse=True)
+    accepted: list[int] = []
+    for i in local_maxima:
+        if all(abs(frames[i].timestamp - frames[j].timestamp) >= min_peak_separation_seconds for j in accepted):
+            accepted.append(i)
+
+    return sorted(accepted)
+
+
+def _place_boundary(
+    frames: list[Frame], peak_a: int, peak_b: int, velocity_threshold: float, min_rest_seconds: float
+) -> int:
+    """The boundary index between two consecutive accepted peaks: the midpoint of the longest
+    low-velocity ("rest") run found strictly between them, or — if no run in that span clears
+    min_rest_seconds — the frame index nearest the time-midpoint between the two peaks. Never
+    adds, removes, or merges a serve; only slides where the cut between two already-counted
+    serves falls."""
+    if peak_b <= peak_a + 1:
+        return peak_a
+
+    runs: list[tuple[int, int, float]] = []
+    rest_run_start: int | None = None
+
+    for i in range(peak_a + 2, peak_b):
+        velocity = _frame_velocity(frames[i - 1], frames[i])
+        if velocity < velocity_threshold:
+            if rest_run_start is None:
+                rest_run_start = i - 1
+        elif rest_run_start is not None:
+            duration = frames[i - 1].timestamp - frames[rest_run_start].timestamp
+            if duration >= min_rest_seconds:
+                runs.append((rest_run_start, i - 1, duration))
+            rest_run_start = None
+
+    if rest_run_start is not None:
+        end = peak_b - 1
+        duration = frames[end].timestamp - frames[rest_run_start].timestamp
+        if duration >= min_rest_seconds:
+            runs.append((rest_run_start, end, duration))
+
+    if runs:
+        best_start, best_end, _ = max(runs, key=lambda run: run[2])
+        return (best_start + best_end) // 2
+
+    midpoint_ts = (frames[peak_a].timestamp + frames[peak_b].timestamp) / 2
+    return min(range(peak_a + 1, peak_b), key=lambda i: abs(frames[i].timestamp - midpoint_ts))
+
+
 def segment_serves(
     frames: list[Frame],
     min_rest_seconds: float = MIN_REST_SECONDS,
     velocity_threshold: float = LOW_MOTION_VELOCITY_THRESHOLD,
-    min_active_run_seconds: float = MIN_ACTIVE_RUN_SECONDS,
+    floor_k: float = HITTING_WRIST_FLOOR_K,
+    min_peak_separation_seconds: float = MIN_PEAK_SEPARATION_SECONDS,
 ) -> list[list[Frame]]:
     """Split a continuous recording's frames into per-serve sub-lists.
 
-    A boundary is declared after a sustained low-velocity ("rest") window spanning at least
-    min_rest_seconds of real time, but only once genuine motion has already been seen (so
-    leading/trailing idle padding at the very start/end of the clip is never split off as its
-    own empty "serve") and only once the active run immediately preceding the rest lasted at
-    least min_active_run_seconds (so a brief mid-routine pause — a ball bounce, a grip
-    adjustment — can't false-split one serve into two; see MIN_ACTIVE_RUN_SECONDS).
+    Counts by presence, not absence: each accepted hitting-wrist-height peak (see
+    _find_serve_peaks) is one serve. Zero peaks (idle-only, or a clip where the hitting wrist
+    never clears its body-relative floor) returns []. Boundaries between consecutive peaks are
+    placed by the existing low-velocity rest-gap logic, bounded to the span between the two
+    peaks (see _place_boundary) — that logic can no longer add, remove, or merge a serve, only
+    slide where the cut falls.
     """
     if not frames:
         return []
 
-    boundaries: list[int] = []
-    rest_run_start: int | None = None
-    has_seen_active = False
-    # Index where the *current, unbroken* active run began — reset every time velocity resumes
-    # after a rest (whether or not that rest was accepted as a boundary), so it always measures
-    # just the run immediately preceding the next candidate rest. (Using the previous boundary
-    # index instead would be wrong: a boundary lands at the *midpoint* of its rest gap, which
-    # would silently credit half of that rest as "active" time toward the next candidate.)
-    active_run_start = 0
+    hitting = HANDEDNESS["hitting"]
+    peaks = _find_serve_peaks(frames, hitting, floor_k, min_peak_separation_seconds)
 
-    for i in range(1, len(frames)):
-        velocity = _frame_velocity(frames[i - 1], frames[i])
-        if velocity >= velocity_threshold:
-            if rest_run_start is not None and has_seen_active:
-                rest_duration = frames[i - 1].timestamp - frames[rest_run_start].timestamp
-                active_duration = frames[rest_run_start - 1].timestamp - frames[active_run_start].timestamp
-                if rest_duration >= min_rest_seconds and active_duration >= min_active_run_seconds:
-                    boundaries.append((rest_run_start + i - 1) // 2)
-            if rest_run_start is not None:
-                active_run_start = i - 1
-            rest_run_start = None
-            has_seen_active = True
-        elif rest_run_start is None:
-            rest_run_start = i
-
-    if not has_seen_active:
+    if not peaks:
         return []
+    if len(peaks) == 1:
+        return [frames]
+
+    boundaries = [
+        _place_boundary(frames, peaks[i], peaks[i + 1], velocity_threshold, min_rest_seconds)
+        for i in range(len(peaks) - 1)
+    ]
 
     segments: list[list[Frame]] = []
     start = 0
