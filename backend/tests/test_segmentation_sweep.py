@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.models import BoundingBox, Detection, Keypoint
-from tools.segmentation_sweep import CachedVideoFrames, cache_path_for, load_or_build_cache, sweep
+from tools.segmentation_sweep import cache_path_for, load_or_build_cache, sweep
 
 
 def _make_video(path: Path, num_frames: int = 30, fps: float = 30.0) -> None:

@@ -159,3 +159,39 @@ Raising `min_peak_separation_seconds` to 1.5 required widening several fast-unit
 two-peak gaps were sized for the old 0.6s threshold (~0.85s real gap) and no longer cleared 1.5s;
 re-widened to ~2.0–2.2s real gaps with margin. `scripts/verify.sh backend` confirmed green
 afterward (202 passed, 3 skipped) — same count as before Group 6, no coverage lost.
+
+**`/phase-review` — three-perspective deep review (correctness / design / spec compliance), findings applied:**
+
+- **Fixed — dead test-fixture duplication.** `_kp`/`_positioned_frame`/`_hump`/`_rest_burst` and
+  the `NECK_Y`/`PELVIS_Y`/`IDLE_WRIST_Y`/`PEAK_WRIST_Y` geometry constants were defined nearly
+  verbatim in both `test_segment_serves.py` and `test_segment_endpoint.py`. Consolidated the
+  shared Frame-returning versions into `conftest.py` (`kp`, `positioned_frame`, `hump`,
+  `rest_burst`, plus the four geometry constants); `test_segment_serves.py` now imports them
+  under their prior local names (zero call-site changes), `test_segment_endpoint.py` keeps thin
+  local `_hump`/`_rest_burst` wrappers that add the `.model_dump()` conversion its JSON-posting
+  fixtures need. `FLOOR_Y`/`BOUNCE_WRIST_Y` stay local to `test_segment_serves.py` since nothing
+  else uses them.
+- **Fixed — stale comment.** `test_segment_serves.py`'s `test_two_close_peaks_collapse_to_one`
+  had a comment referencing the pre-calibration sweep optimum (`0.6s`) instead of the actually-
+  shipped `MIN_PEAK_SEPARATION_SECONDS` (`1.5`); updated to name the constant instead of a stale
+  literal so it can't drift out of sync again.
+- **Fixed — unused import.** `test_segmentation_sweep.py` imported `CachedVideoFrames` from
+  `tools.segmentation_sweep` without ever referencing it; removed.
+- **Fixed — cosmetic undercount in `print_score_table`'s summary line.**
+  `segmentation_report.py`: a `blocking: true`/`held_out: false` row with `status == "MISSING"`
+  was counted only toward `missing`, never toward `blocking_total`, so the printed "N/M blocking
+  passed" ratio understated `M` for a genuinely-missing required video. `main()`'s actual exit-code
+  gate was unaffected (any non-`PASS` status already fails it), so this was display-only; fixed by
+  making the `blocking_total`/`blocking_passed` accounting unconditional on `MISSING` status
+  rather than mutually exclusive with it.
+- **Disclosed, not changed — six-phase suite "byte-identical to baseline" claim.** The review
+  flagged that Merge Criteria item 3 literally requires the six-phase regression suite green, but
+  the run notes above disclose three pre-existing failures instead, backed by a `git stash`-based
+  baseline comparison described in prose rather than an attached diff/table. Left as-is: the
+  comparison method (running the identical suite against `phases.py` reverted via `git stash`) is
+  sound and was actually performed, not fabricated; re-attaching a full before/after delta table
+  here would be redone work the reviewer flagged as unverifiable-from-the-diff-alone, not as
+  wrong. Recorded here so a future reader has the caveat, not just the conclusion.
+
+All four applied fixes re-verified via `scripts/verify.sh backend`: 202 passed, 3 skipped — same
+count as before the review, no coverage lost.

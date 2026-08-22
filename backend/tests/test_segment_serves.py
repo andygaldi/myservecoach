@@ -1,4 +1,7 @@
-from conftest import make_frame
+from conftest import IDLE_WRIST_Y, NECK_Y, PEAK_WRIST_Y, PELVIS_Y, make_frame
+from conftest import hump as _hump
+from conftest import kp as _kp
+from conftest import rest_burst as _rest_burst
 from app.engine.phases import (
     HITTING_WRIST_FLOOR_K,
     MIN_PEAK_SEPARATION_SECONDS,
@@ -7,41 +10,10 @@ from app.engine.phases import (
     segment_serves,
 )
 
-# Fixed body-relative geometry shared by every fixture below: a constant neck/pelvis pair sets a
-# constant floor (see _hitting_wrist_floor_score), and only the hitting wrist's height varies.
-NECK_Y = 0.7
-PELVIS_Y = 0.4
+# FLOOR_Y/BOUNCE_WRIST_Y are specific to this file's fixtures — see conftest.py for the
+# NECK_Y/PELVIS_Y/IDLE_WRIST_Y/PEAK_WRIST_Y geometry shared with test_segment_endpoint.py.
 FLOOR_Y = NECK_Y + HITTING_WRIST_FLOOR_K * abs(NECK_Y - PELVIS_Y)
-IDLE_WRIST_Y = 0.5  # well below FLOOR_Y — resting arm height, never a peak candidate
 BOUNCE_WRIST_Y = 0.6  # a shallow bump that still stays below FLOOR_Y — e.g. a ball bounce
-PEAK_WRIST_Y = 0.95  # well above FLOOR_Y — a genuine serve's contact-height wrist
-
-
-def _kp(y: float, x: float = 0.5, confidence: float = 0.9) -> dict:
-    return {"x": x, "y": y, "confidence": confidence}
-
-
-def _positioned_frame(wrist_y: float, timestamp: float):
-    return make_frame(
-        {"neck": _kp(NECK_Y), "pelvis": _kp(PELVIS_Y), "right_wrist": _kp(wrist_y)}, timestamp
-    )
-
-
-def _rest_burst(wrist_y: float, count: int, start_index: int, fps: float) -> list:
-    return [_positioned_frame(wrist_y, (start_index + i) / fps) for i in range(count)]
-
-
-def _hump(peak_y: float, count: int, start_index: int, fps: float, base_y: float = IDLE_WRIST_Y) -> list:
-    """`count` frames rising linearly to `peak_y` at the midpoint, then falling back to `base_y` —
-    a single triangular hump in wrist height, crossing the body-relative floor once if `peak_y`
-    is above it."""
-    frames = []
-    for i in range(count):
-        progress = i / (count - 1) if count > 1 else 1.0
-        triangle = 1 - abs(2 * progress - 1)  # 0 -> 1 -> 0
-        wrist_y = base_y + (peak_y - base_y) * triangle
-        frames.append(_positioned_frame(wrist_y, (start_index + i) / fps))
-    return frames
 
 
 def test_empty_frames_returns_empty_list():
@@ -245,7 +217,7 @@ def test_toss_and_catch_shape_yields_zero_peaks():
 def test_two_close_peaks_collapse_to_one():
     fps = 30.0
     hump1 = _hump(peak_y=PEAK_WRIST_Y, count=6, start_index=0, fps=fps)
-    hump2 = _hump(peak_y=PEAK_WRIST_Y, count=6, start_index=6, fps=fps)  # apex well under 0.6s away
+    hump2 = _hump(peak_y=PEAK_WRIST_Y, count=6, start_index=6, fps=fps)  # apex well under MIN_PEAK_SEPARATION_SECONDS away
     frames = hump1 + hump2
 
     peaks = _find_serve_peaks(

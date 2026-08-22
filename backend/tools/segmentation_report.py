@@ -260,7 +260,7 @@ def print_score_table(results: list[dict]) -> None:
 
         if result["status"] == "MISSING":
             missing += 1
-        elif result["blocking"]:
+        if result["blocking"]:
             blocking_total += 1
             if result["status"] == "PASS":
                 blocking_passed += 1
