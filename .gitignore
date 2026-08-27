@@ -27,3 +27,4 @@ DerivedData/
 *.swp
 *~.nib
 .codegraph/
+.claude/.headroom_wrap_marker.json
