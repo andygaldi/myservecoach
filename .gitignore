@@ -26,3 +26,4 @@ DerivedData/
 .DS_Store
 *.swp
 *~.nib
+.codegraph/
