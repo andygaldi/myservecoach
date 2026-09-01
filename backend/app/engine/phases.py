@@ -26,6 +26,13 @@ LOW_MOTION_VELOCITY_THRESHOLD = 0.03  # normalized units per second
 # spaced local maxima above the floor that a tighter window wrongly split into multiple serves.
 HITTING_WRIST_FLOOR_K = 0.15
 MIN_PEAK_SEPARATION_SECONDS = 1.5
+# A peak candidate must clear the floor by this margin, not merely by any positive amount. Without
+# it, acceptance is a coin flip for any wrist that hovers at the floor: on
+# open_right_flat_5serve_30fps_720x1280_galdi.MOV a bump scoring -0.0005 under one pose pipeline
+# and +0.0038 under another was the difference between counting 5 serves and 6. Real serve peaks
+# across the whole count corpus score 0.0705-0.2233, so 0.02 sits ~3.5x below the weakest real
+# peak and ~5x above that artifact; every margin in [0.005, 0.05] scores identically on the corpus.
+MIN_PEAK_SCORE = 0.02
 CONTACT_WRIST_WEIGHT = 0.5
 CONTACT_PROXIMITY_WEIGHT = 0.5
 TROPHY_HIP_WEIGHT = 0.5
@@ -92,12 +99,16 @@ def _hitting_wrist_floor_score(frame: Frame, hitting: str, floor_k: float) -> fl
 
 
 def _find_serve_peaks(
-    frames: list[Frame], hitting: str, floor_k: float, min_peak_separation_seconds: float
+    frames: list[Frame],
+    hitting: str,
+    floor_k: float,
+    min_peak_separation_seconds: float,
+    min_peak_score: float = MIN_PEAK_SCORE,
 ) -> list[int]:
-    """Frame indices of accepted serve peaks: local maxima of the positive hitting-wrist floor
-    score, greedily non-max-suppressed by descending score with a minimum real-seconds
-    separation between accepted peaks (fps-invariant by construction, same reasoning as
-    _frame_velocity's dt-normalization). Accepted peak count is the serve count."""
+    """Frame indices of accepted serve peaks: local maxima of the hitting-wrist floor score that
+    clear min_peak_score, greedily non-max-suppressed by descending score with a minimum
+    real-seconds separation between accepted peaks (fps-invariant by construction, same reasoning
+    as _frame_velocity's dt-normalization). Accepted peak count is the serve count."""
     # Keep every frame's score, including negative ones — only missing neck/pelvis/wrist drops a
     # frame from the series entirely. Negative-score runs between two humps are what lets two
     # equal-height, widely-separated peaks be told apart below; filtering to positive scores here
@@ -115,9 +126,11 @@ def _find_serve_peaks(
     # neighbors by position (not raw frame-index distance, since low-confidence frames may be
     # missing) — mirrors _smooth_series' same positional-neighbor convention. Equal-score runs
     # (e.g. a sustained high-wrist follow-through) are grouped into a single plateau first, so a
-    # wide flat run is counted as one peak rather than many. Only positive-score plateaus are
-    # ever accepted as peaks — this is the load-bearing hitting-side restriction that rejects a
-    # toss-and-catch (toss arm rises, hitting arm does not).
+    # wide flat run is counted as one peak rather than many. Only plateaus scoring above
+    # min_peak_score are ever accepted as peaks — this is the load-bearing hitting-side
+    # restriction that rejects a toss-and-catch (toss arm rises, hitting arm does not), and the
+    # margin is what keeps a wrist hovering at the floor from flipping the count (see
+    # MIN_PEAK_SCORE).
     ordered = sorted(scores)
     plateaus: list[list[int]] = []
     for i in ordered:
@@ -129,7 +142,7 @@ def _find_serve_peaks(
     local_maxima: list[int] = []
     for pos, plateau in enumerate(plateaus):
         score = scores[plateau[0]]
-        if score <= 0:
+        if score <= min_peak_score:
             continue
         prev_score = scores[plateaus[pos - 1][-1]] if pos > 0 else None
         next_score = scores[plateaus[pos + 1][0]] if pos < len(plateaus) - 1 else None
@@ -190,6 +203,7 @@ def segment_serves(
     velocity_threshold: float = LOW_MOTION_VELOCITY_THRESHOLD,
     floor_k: float = HITTING_WRIST_FLOOR_K,
     min_peak_separation_seconds: float = MIN_PEAK_SEPARATION_SECONDS,
+    min_peak_score: float = MIN_PEAK_SCORE,
 ) -> list[list[Frame]]:
     """Split a continuous recording's frames into per-serve sub-lists.
 
@@ -204,7 +218,9 @@ def segment_serves(
         return []
 
     hitting = HANDEDNESS["hitting"]
-    peaks = _find_serve_peaks(frames, hitting, floor_k, min_peak_separation_seconds)
+    peaks = _find_serve_peaks(
+        frames, hitting, floor_k, min_peak_separation_seconds, min_peak_score
+    )
 
     if not peaks:
         return []

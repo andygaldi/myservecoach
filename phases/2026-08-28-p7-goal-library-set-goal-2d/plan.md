@@ -21,6 +21,40 @@
 > logic only; the real on-device rotation behavior is a manual real-device check recorded in
 > `validation.md`.
 
+## Group 0 — Backend: Fused Pose/Detection Pipeline (surface: `backend`)
+
+> Pre-implementation latency review (`latency-findings.md`) found `rtmlib`'s bundled YOLOX-m
+> person detector is 92% of pose cost and runs at 0.44x realtime on CPU — an unbounded backlog
+> over a live Set Goal session. This group wires the measured fix (2.24x–3.72x realtime, 0
+> corpus disagreements) before the chunk endpoint (Group 2) exists to consume it.
+
+0a. Keep `backend/tools/goal_latency_probe.py` (already written, untracked) as a committed sibling
+    to `pose_benchmark.py` — it's the reproducible evidence and the regression check if the
+    pipeline changes again. Commit it as-is; no changes needed.
+0b. `backend/app/services/pose_model.py`: add a person-bbox-accepting path to `RTMPoseModel` —
+    `infer(image, person_bbox=None)`, loading a standalone `rtmlib.RTMPose` (same checkpoint and
+    input size `Body` uses) and skipping YOLOX when a bbox is supplied. `Body` stays as the
+    no-bbox fallback so `POST /v1/pose` and all existing callers are untouched. Subject selection
+    for the bbox must pick the **largest-area** person box (mirroring `select_primary_person`,
+    `pose_model.py:57-65`), not highest-confidence — copy `goal_latency_probe.py`'s `FusedPipeline`
+    logic rather than re-deriving it.
+0c. `backend/app/services/object_detection.py`: expose the already-computed person box, e.g.
+    `infer_with_person(image) -> tuple[list[Detection], list[float] | None]` returning the
+    largest-area class-0 box in **pixel xyxy, unflipped and unnormalized** (the y-flip in
+    `map_yolo_results_to_detections` is for the backend's own coordinate convention and must not
+    be applied here). `DETECTION_CLASS_MAP` and the existing `infer` are unchanged, so racket/ball
+    output stays bit-identical.
+0d. Document `DETECTION_MODEL_DEVICE=mps` in dev-run docs as an optional speedup; do **not**
+    hard-code it — `fused/cpu` already clears the latency gate at 2.24x, so nothing depends on
+    CoreML/MPS (rtmlib's YOLOX-m detector fails under CoreML: `CoreML static output shape
+    ({1,1,1,8400,8400}) and inferred shape ({1,8400}) have different ranks`; the fused path
+    sidesteps this entirely by dropping YOLOX-m).
+0e. New unit coverage: `infer_with_person` returns pixel xyxy (unflipped, unnormalized); returns
+    `None` when no person clears threshold; `RTMPoseModel.infer` with no bbox still routes through
+    `Body` unchanged (regression guard for existing `/v1/pose` callers).
+0f. Run `scripts/verify.sh backend` — confirm green. Only Set Goal's chunk endpoint (Group 2) will
+    call the new fused path this phase; `/v1/analyze` and `/v1/segment/video` are unchanged.
+
 ## Group 1 — Backend: Shared Scoring Function & `/v1/analyze` Goal Extension (surface: `backend`)
 
 1. `backend/app/models.py`: add
@@ -140,7 +174,7 @@
     router = APIRouter()
 
     @router.post("/goal/session/chunk", response_model=GoalChunkResponse)
-    async def goal_session_chunk(
+    def goal_session_chunk(  # sync def, not async — see latency note below
         request: Request,
         session_id: str,
         goal_rule_id: str,
@@ -150,18 +184,44 @@
         detection_model: ObjectDetectionModel = Depends(get_object_detection_model),
     ) -> GoalChunkResponse:
     ```
+    **Latency note (`latency-findings.md`):** the handler is a plain `def`, not `async def` — as
+    originally planned it would be `async def` with synchronous CPU-bound inference inline, which
+    stalls FastAPI's event loop for every concurrent request including a queued `is_final=true`
+    chunk. FastAPI runs sync `def` route handlers in a threadpool automatically, so this is the
+    fix, not `run_in_threadpool` inside an `async def`.
+
     Body, mirroring `segment_video`'s tempfile-write-then-process shape:
     - Validate `goal_rule_id in RULE_IDS` up front (reuse `scoring.UnknownGoalRuleId` → `HTTPException(400, ...)`), before touching the buffer or writing the temp file.
     - Write the streamed body to a temp file, `sample_video_frames(tmp_path, stride)`, infer
-      pose/detections per sampled frame (same pattern as `segment_video`), build
-      `sampled: list[tuple[float, Frame, list[Detection]]]`.
+      pose/detections per sampled frame using **Group 0's fused pipeline**
+      (`detection_model.infer_with_person`'s box fed to `pose_model.infer(image, person_bbox=...)`),
+      not `Body`/`rtmlib`'s bundled detector — this is the pipeline the latency gate was measured
+      against. Build `sampled: list[tuple[float, Frame, list[Detection]]]`.
     - `buffer = goal_session_buffer.append_chunk(session_id, stride, sampled)`.
     - `segments = segment_serves(buffer.frames)`; `seg_detections = slice_detections_by_segments(buffer.detections, segments)`.
-    - `confirmed_count = len(segments) if is_final else max(0, len(segments) - 1)`.
+    - `confirmed_count`: **not** "all but the last segment" — see Blocker A in `latency-findings.md`,
+      which measured that rule as one full inter-serve interval (~10–30s) late per verdict. Instead,
+      confirm every segment whose peak is `CONFIRM_LAG_SECONDS` (= `MIN_PEAK_SEPARATION_SECONDS`,
+      1.5s in `phases.py`) or more behind the buffer's trailing edge:
+      ```python
+      CONFIRM_LAG_SECONDS = MIN_PEAK_SEPARATION_SECONDS
+      buffer_end = buffer.frames[-1].timestamp
+      confirmed_count = len(segments) if is_final else sum(
+          1 for seg in segments if _peak_timestamp(seg) <= buffer_end - CONFIRM_LAG_SECONDS
+      )
+      ```
+      Uses the new `phases.py` peak-timestamp helper (see below) rather than re-deriving peaks in
+      the router.
     - For `i in range(buffer.reported_count, confirmed_count)`: `result = score_segment(segments[i], seg_detections[i], goal_rule_id=goal_rule_id)`; append `GoalChunkResult(segment_index=i, goal_result=result.goal_result)`.
     - `buffer.reported_count = confirmed_count`.
     - If `is_final`: `goal_session_buffer.evict(session_id)` after building the results list (not before — the buffer is still needed to compute this call's results).
     - `finally: tmp_path.unlink(missing_ok=True)`, matching `segment_video`.
+10a. `backend/app/engine/phases.py`: add an additive helper exposing a confirmed segment's peak
+    timestamp — `segment_serves` returns segments, not peaks, so the router needs a way to get
+    accepted peak timestamps without re-deriving them, e.g. `_peak_timestamp(segment) -> float` (or
+    a parallel `segment_serves_with_peaks` returning `(segment, peak_timestamp)` pairs) built from
+    the same peak data `_find_serve_peaks` already computes internally. Existing `segment_serves`
+    callers (`/v1/segment/video`, `test_segment_serves.py`) are unaffected — this is additive.
 11. `backend/app/main.py`: `from app.routers import ..., goal_session` and
     `app.include_router(goal_session.router, prefix="/v1")`.
 12. New `backend/tests/test_goal_session_buffer.py`: `append_chunk` offsets a second chunk's
@@ -169,14 +229,16 @@
     is a no-op on a missing `session_id`; a `clear_all()`-reset dict starts empty. Add a
     `clear_all()` call in this file's and the endpoint test file's fixture teardown.
 13. New `backend/tests/test_goal_session_endpoint.py` (dependency-override stub-model pattern from
-    `test_segment_video_endpoint.py`): two chunks posted under the same `session_id` where the
-    combined buffer yields 2 segments after chunk 2 — chunk 1 alone confirms 0 segments (single
-    detected segment is provisional), chunk 2 confirms segment 0 only (segment 1 stays provisional
-    until `is_final`); a third, `is_final=true` chunk (or a 2nd chunk posted with `is_final=true`)
-    confirms the remaining segment(s) and evicts the buffer — a follow-up chunk with the same
-    `session_id` after that starts a fresh buffer (buffer's `reported_count`/`next_offset` back to
-    0, observable via a subsequent request's results starting again from segment 0). Unknown
-    `goal_rule_id` → `400`, buffer untouched (no chunk appended on validation failure).
+    `test_segment_video_endpoint.py`): a single chunk whose one detected segment's peak is
+    `≥ CONFIRM_LAG_SECONDS` behind the buffer's trailing edge **is** confirmed without `is_final`
+    — the behavior most worth a direct test, since it's the whole point of the lag-based rule
+    (`latency-findings.md`'s Blocker A fix; the old "wait for a later segment's peak" rule would
+    have left this provisional). A segment whose peak is *within* the lag window stays provisional
+    until either the buffer grows past it or `is_final=true`; a final chunk confirms all remaining
+    segments regardless of lag and evicts the buffer — a follow-up chunk with the same `session_id`
+    after that starts a fresh buffer (buffer's `reported_count`/`next_offset` back to 0, observable
+    via a subsequent request's results starting again from segment 0). Unknown `goal_rule_id` →
+    `400`, buffer untouched (no chunk appended on validation failure).
 14. Run `scripts/verify.sh backend` — confirm green.
 
 ## Group 3 — iOS: Goal Catalog, `ProWorkflow`, `GoalSelectionView` (surface: `ios`)
@@ -463,7 +525,9 @@
 
         func startSession() {
             isRecording = true
-            cameraViewModel.startChunkedRecording(chunkDuration: 4) { [weak self] url, isFinal in
+            // chunkDuration: 2, not 4 — halves the 0-4s chunk-quantization term in the cue-latency
+            // budget (latency-findings.md's "Resulting latency budget" table).
+            cameraViewModel.startChunkedRecording(chunkDuration: 2) { [weak self] url, isFinal in
                 Task { @MainActor [weak self] in await self?.handleChunk(url: url, isFinal: isFinal) }
             }
         }
@@ -474,8 +538,24 @@
             cameraViewModel.stopChunkedRecording()
         }
 
+        // Backlog guard (latency-findings.md): with 2s chunks, a slow/stalled upload must not let
+        // outstanding chunk uploads queue unboundedly — that drifts every later cue later and later
+        // instead of degrading predictably. Cap outstanding (in-flight, not-yet-responded) uploads
+        // at a small bound; a new chunk finalizing while already at the bound drops the oldest
+        // still-in-flight upload (abandons awaiting its result; a stray late response is ignored)
+        // rather than letting the queue grow — losing an occasional serve's cue under sustained
+        // backlog is the accepted degradation mode, not silence or unbounded lateness.
+        private let maxOutstandingUploads = 2
+        private var outstandingUploadIDs: [UUID] = []
+
         private func handleChunk(url: URL, isFinal: Bool) async {
             chunkURLs.append(url)
+            let uploadID = UUID()
+            if !isFinal, outstandingUploadIDs.count >= maxOutstandingUploads {
+                outstandingUploadIDs.removeFirst()  // drop oldest in-flight upload
+            }
+            outstandingUploadIDs.append(uploadID)
+            defer { outstandingUploadIDs.removeAll { $0 == uploadID } }
             do {
                 let results = try await goalSessionService.uploadChunk(
                     fileURL: url, sessionId: sessionId, goalRuleId: goal.ruleId, isFinal: isFinal
@@ -627,6 +707,11 @@
 54. Manual real-device check (per the Chunk-rotation note above): record a real multi-serve Set
     Goal session on a physical device, confirm chunks upload, cues are spoken audibly between
     serves, the running tally updates, and the saved `GoalSession` replays correctly from History.
-    Record the outcome in `validation.md` run notes.
+    As part of this same recording, measure and record **wall-clock latency**: for each serve, the
+    seconds from contact to its spoken cue (stopwatch or a timestamped console log at contact-time
+    and at `speak()` call time) — bar: median ≤5s, max ≤8s, matching the ~2.4–4.4s budget in
+    `latency-findings.md`'s "Resulting latency budget" table (that table assumes `fused/mps`;
+    record which device/pipeline config was used alongside the numbers). Record all outcomes in
+    `validation.md` run notes.
 55. Update `specs/roadmap.md`'s P7 entry status marker only as part of `/merge` (not this phase) —
     noted for the implementer so it isn't done early.

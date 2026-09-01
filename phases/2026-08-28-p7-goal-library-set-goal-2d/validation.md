@@ -8,6 +8,15 @@ tally, and gets a saved, replayable session in History. Assessment's existing `/
 contract is unchanged for callers that don't send `goal_rule_id`. Lite mode, `PhaseReviewView`,
 and `ContentView` are untouched.
 
+## Group 0 — Backend: Fused Pose/Detection Pipeline
+
+| Check | How to verify |
+|---|---|
+| `infer_with_person` returns the person box correctly | New unit test: pixel xyxy, unflipped/unnormalized; returns `None` when no person clears threshold. |
+| `RTMPoseModel.infer` with no bbox is unchanged | New unit test: no-bbox call still routes through `Body`, matching pre-P7 `/v1/pose` behavior exactly (regression guard). |
+| Fused pipeline accuracy already corpus-verified pre-implementation | Not re-run this phase — `latency-findings.md` records 20-clip fused-vs-`rtmlib` `segment_serves` comparison, 0 disagreements, 19/20 ground truth, done before `/phase` started. Don't redo. |
+| Full backend suite green | `scripts/verify.sh backend`. |
+
 ## Group 1 — Backend: Shared Scoring Function & `/v1/analyze` Goal Extension
 
 | Check | How to verify |
@@ -26,7 +35,8 @@ and `ContentView` are untouched.
 |---|---|
 | Chunk timestamps continue the buffer's running clock, not reset per chunk | `pytest backend/tests/test_goal_session_buffer.py` — second `append_chunk` call's frame timestamps start after the first chunk's, offset by `_CHUNK_FPS`/stride math. |
 | `evict` removes/no-ops correctly | `test_goal_session_buffer.py` — evicting a present `session_id` empties it; evicting a missing one doesn't raise. |
-| Segment confirmation rule holds across chunks | `pytest backend/tests/test_goal_session_endpoint.py` — a first chunk containing one full serve confirms 0 segments (provisional); a second chunk revealing a second serve's peak confirms segment 0 only; an `is_final=true` chunk confirms all remaining segments and returns them. |
+| Segment confirmation rule holds across chunks | `pytest backend/tests/test_goal_session_endpoint.py` — a single detected segment whose peak is `≥ CONFIRM_LAG_SECONDS` (1.5s) behind the buffer's trailing edge **is** confirmed without `is_final` (replaces the old "wait for a later segment's peak" rule — `latency-findings.md` Blocker A); a segment whose peak is still within the lag window stays provisional; an `is_final=true` chunk confirms all remaining segments regardless of lag and returns them. |
+| Chunk handler doesn't block the event loop | Code inspection / `git diff`: `goal_session_chunk` is a plain `def` (not `async def` wrapping sync inference), so FastAPI runs it in a threadpool automatically. |
 | `is_final=true` evicts the buffer | `test_goal_session_endpoint.py` — a follow-up chunk posted under the same `session_id` after an `is_final=true` call starts a fresh buffer (`reported_count`/offsets back to 0). |
 | Unknown `goal_rule_id` on the chunk endpoint rejected, buffer untouched | `test_goal_session_endpoint.py` — bad `goal_rule_id` → `400`, no chunk appended (verify via a follow-up valid call showing no leaked state). |
 | Response shape matches spec | `test_goal_session_endpoint.py` — `{"results": [{"segment_index": int, "goal_result": {...}}]}`, `results` empty (not omitted) when nothing newly confirmed. |
@@ -66,7 +76,8 @@ and `ContentView` are untouched.
 
 | Check | How to verify |
 |---|---|
-| Chunk finalize → upload → tally update → spoken cue | `SetGoalSessionViewModelTests.swift` — simulated chunk finalize via the mock camera's chunk-trigger helper leads to `uploadChunk` called with correct `sessionId`/`goalRuleId`/`isFinal`; each returned result appends a `GoalAttemptDisplay` and calls `spokenFeedback.speak` with its `spokenCue`. |
+| Chunk finalize → upload → tally update → spoken cue | `SetGoalSessionViewModelTests.swift` — simulated chunk finalize via the mock camera's chunk-trigger helper leads to `uploadChunk` called with correct `sessionId`/`goalRuleId`/`isFinal`; each returned result appends a `GoalAttemptDisplay` and calls `spokenFeedback.speak` with its `spokenCue`. `startSession` uses `chunkDuration: 2` (not 4). |
+| Backlog guard bounds outstanding uploads | `SetGoalSessionViewModelTests.swift` — finalizing more chunks than `maxOutstandingUploads` while earlier uploads haven't completed drops the oldest in-flight upload (its late result, if any, is ignored — no attempt/tally entry from it) instead of the queue growing unboundedly. |
 | A failed chunk upload doesn't wedge the session | `SetGoalSessionViewModelTests.swift` — a throwing `uploadChunk` sets `errorMessage`, leaves `isRecording` untouched, appends no bogus attempt, and a subsequent successful chunk still processes normally. |
 | Stop finalizes video | `SetGoalSessionViewModelTests.swift` — an `isFinal` chunk triggers `finalizeVideo()`, calling `concatenator.concatenate` with the accumulated chunk URLs and setting `videoURL`; `isFinalizing` flips back to `false` once done. |
 | `persist(to:)` builds correct SwiftData objects | `SetGoalSessionViewModelTests.swift` — resulting `GoalSession` has the right `goalRuleId`/`goalDisplayName`/`videoURL`, and one `GoalAttemptRecord` per recorded attempt with matching fields. |
@@ -93,13 +104,15 @@ and `ContentView` are untouched.
 | iOS catalog matches `rules.json` exactly | Manual cross-check: list `backend/rules.json` rule ids vs. `GoalCatalog.all`'s `ruleId`s — same 9, no typos/mismatches. |
 | Both test suites green | `scripts/verify.sh backend` and `scripts/verify.sh ios`, both passing as the final automated gate. |
 | **Manual — real device, full end-to-end:** a real multi-serve Set Goal session works start to finish | On a physical device: pick a goal, start recording, hit several serves spanning multiple chunk boundaries, confirm chunks upload without stalling the UI, cues are spoken audibly after each detected serve (see Group 6's audio-quality row), the live tally updates correctly, stopping finalizes and shows an accurate summary, and Save produces a session that reopens correctly from History (see Group 7). Record the outcome (what was tested, any defects found/fixed) in this file's Run Notes during `/phase`. |
+| **Manual — real device, measured latency:** contact-to-cue delay meets the budget | Same device recording: for each serve, measure wall-clock seconds from contact to its spoken cue (stopwatch or timestamped console logs at contact-time and `speak()` call time). Bar: **median ≤5s, max ≤8s**, matching `latency-findings.md`'s ~2.4–4.4s budget (measured for `fused/mps`; record which device/pipeline config was actually used). This replaces the earlier bar of merely "cues are spoken audibly between serves," which the original one-inter-serve-interval-late design would have satisfied while still being too slow. Record numbers in Run Notes. |
 
 ## Merge Criteria
 
 - `scripts/verify.sh backend` and `scripts/verify.sh ios` both green.
-- The Group 8 manual real-device end-to-end check (including the Group 6 audio-quality check)
-  completed and passing — **hard gate**, not deferred to a follow-up, since live audible feedback
-  during recording is this phase's core, only-manually-verifiable behavior.
+- The Group 8 manual real-device end-to-end check (including the Group 6 audio-quality check and
+  the measured contact-to-cue latency bar, median ≤5s / max ≤8s) completed and passing — **hard
+  gate**, not deferred to a follow-up, since live audible feedback during recording is this
+  phase's core, only-manually-verifiable behavior.
 - No changes outside the Pro-2D path into `PhaseReviewView`, Lite pipeline/segmentation services,
   or `ContentView`.
 - Assessment's existing `/v1/analyze` behavior (no `goal_rule_id`) unchanged, confirmed by

@@ -12,6 +12,28 @@ live feedback, reusing P4/P5/P6d's segmentation and rule-evaluation logic unchan
 
 ## In Scope
 
+### Backend — fused pose/detection pipeline (Set Goal chunk path only)
+
+- `backend/app/services/pose_model.py`: `RTMPoseModel` gains a person-bbox-accepting path
+  (`infer(image, person_bbox=None)`) that loads a standalone `rtmlib.RTMPose` (same checkpoint/
+  input size `Body` already uses) and skips the redundant YOLOX-m person detector when a bbox is
+  supplied. `Body` stays as the no-bbox fallback, so `POST /v1/pose` and every existing caller is
+  unchanged.
+- `backend/app/services/object_detection.py`: exposes the already-computed largest-area class-0
+  (person) box in pixel xyxy alongside the existing racket/ball detections, so the chunk endpoint
+  can feed it straight to the new pose path instead of re-running person detection.
+- Only the new Set Goal chunk endpoint (Group 2) uses the fused path. `/v1/analyze` and
+  `/v1/segment/video` are unchanged this phase — switching Assessment over is a follow-on with its
+  own P5 revalidation.
+- Driven by measured latency: pre-implementation profiling (`backend/tools/goal_latency_probe.py`,
+  see `latency-findings.md`) found `rtmlib`'s bundled YOLOX-m detector accounts for 92% of pose
+  cost and runs at 0.44x realtime on CPU — a growing backlog over a live session. The fused path
+  (reusing the object-detection model's already-computed person box) measured 2.24x–3.72x realtime,
+  clearing the "few seconds" cue-latency requirement below with headroom.
+- Accuracy of the swap is corpus-verified (20 clips, fused vs. `rtmlib` `segment_serves` counts;
+  see `latency-findings.md`) before being wired in — 0 disagreements between pipelines with the
+  `MIN_PEAK_SCORE` margin below applied.
+
 ### Goal catalog (iOS)
 
 - A curated, static Swift list of goals — one goal per existing `rules.json` rule_id, with a
@@ -48,10 +70,19 @@ live feedback, reusing P4/P5/P6d's segmentation and rule-evaluation logic unchan
 - On each chunk: extract + infer its frames (reusing `sample_video_frames` /
   `build_frame_sequence`'s pattern), append to the session's buffer, re-run `segment_serves`
   (P6d's peak-detection algorithm) over the full accumulated buffer.
-- **Segment confirmation rule:** a segment is safe to score and speak once a *later* segment's
-  peak has been detected (i.e. all but the currently-last segment), or — on the final chunk
-  (`is_final=true`) — including the last one too. This mirrors how peak detection already treats
-  trailing motion as provisional until a following boundary (or end of input) resolves it.
+- **Segment confirmation rule:** a segment is safe to score and speak once its peak timestamp is
+  at least `CONFIRM_LAG_SECONDS` (= `MIN_PEAK_SEPARATION_SECONDS`, 1.5s) behind the buffer's
+  trailing edge — old enough that it cannot be a spurious edge-of-buffer artifact — or, on the
+  final chunk (`is_final=true`), all remaining segments regardless of lag. Replaces an earlier
+  "confirmed once a later segment's peak is detected" design, which measured one full inter-serve
+  interval (~10–30s) of added latency per verdict and left the last serve of a session unspoken
+  until Stop; see `latency-findings.md` Blocker A.
+- **Segmentation margin:** `segment_serves`/`_find_serve_peaks` gain a `MIN_PEAK_SCORE = 0.02`
+  acceptance floor (was `score > 0`), fixing a corpus-observed false-positive serve count on the
+  fused pipeline where a sub-pixel score difference (~0.004, inside pipeline noise) flipped a
+  rejected plateau to accepted. Verified against the 20-clip ground-truth corpus: 19/20 match
+  before and after (the margin removes the fused-only miss without changing `rtmlib`'s counts);
+  see `latency-findings.md`.
 - Response: `{"results": [{"segment_index": int, "goal_result": GoalResult}, ...]}` — the
   newly-confirmed segments since the last chunk (usually 0 or 1, occasionally more on a chunk
   spanning two boundaries).
@@ -71,9 +102,12 @@ live feedback, reusing P4/P5/P6d's segmentation and rule-evaluation logic unchan
 
 - New capability on `CameraService`/`CameraViewModel`: `startChunkedRecording(chunkDuration:
   onChunkFinalized:)` — internally stops and immediately restarts the movie file output on a
-  fixed interval (default 4s), invoking a callback with each finalized chunk's file URL. Only
-  used by the new Set Goal recording flow; Lite and Assessment's single-shot recording is
-  unchanged.
+  fixed interval, invoking a callback with each finalized chunk's file URL. Only used by the new
+  Set Goal recording flow; Lite and Assessment's single-shot recording is unchanged. Set Goal uses
+  a 2s interval (not 4s) — halves the chunk-quantization term in the live-cue latency budget (see
+  `latency-findings.md`); `SetGoalSessionViewModel` bounds outstanding chunk uploads to a small
+  constant, dropping the oldest in-flight upload rather than queueing unboundedly if uploads fall
+  behind.
 - New `GoalSessionService` (URLSession) uploads each finalized chunk to
   `/v1/goal/session/chunk` with the session's `session_id`/`goal_rule_id`, `is_final=true` on
   the last chunk after the player stops recording, and decodes the results list.
@@ -124,7 +158,8 @@ live feedback, reusing P4/P5/P6d's segmentation and rule-evaluation logic unchan
 | Goal definition | One goal = one existing `rules.json` rule_id, with a curated iOS display name | User confirmed; avoids a second threshold-calibration surface — Set Goal reuses Pro 2D's already-calibrated rules unchanged. |
 | Backend contract | Extend `POST /v1/analyze`'s request/response (optional `goal_rule_id`/`goal_result`); the chunk endpoint reuses the same scoring function | User confirmed; one scoring code path serves both Assessment-style single-shot analysis and Set Goal's per-segment live scoring. |
 | Set Goal entry point | A second, nested choice under Pro 2D (Assessment vs. Set Goal), not a third top-level `SessionMode` case | User confirmed; matches `mission.md`'s framing of Assessment/Set Goal as two Pro 2D workflows, and avoids the case-explosion risk P7b's own spec already flagged for a different axis (recording angle). |
-| Segment confirmation rule | A segment is confirmed once a later segment's peak is detected, or on the session's final chunk | Mirrors how peak detection already treats trailing motion as provisional until a following boundary resolves it — avoids speaking a false pass/fail before a serve's full follow-through has been captured. |
+| Segment confirmation rule | A segment is confirmed once its peak is ≥1.5s (`CONFIRM_LAG_SECONDS`) behind the buffer's trailing edge, or on the session's final chunk | Latency review (`latency-findings.md`) found the original "confirmed once a later segment's peak is detected" rule spoke each verdict a full inter-serve interval late (~10–30s) and never spoke the last serve until Stop. 1.5s is the algorithm's own minimum-peak-separation distance — a peak older than that is provably not a trailing-edge artifact — so this meets the live-feedback requirement instead of contradicting it. |
+| Pose inference pipeline | Fused: reuse the object-detector's already-computed person box, feed it directly to a standalone `RTMPose`, drop the redundant YOLOX-m detector — for the Set Goal chunk path only | Measured (`latency-findings.md`): `rtmlib`'s bundled detector is 92% of pose cost and ran at 0.44x realtime, an unbounded backlog over a session; the fused path measured 2.24x–3.72x realtime with 0 corpus disagreements against `rtmlib`, clearing the latency requirement with headroom. |
 | Session state | New process-lifetime, single-session in-memory buffer (no DB/Redis) | Matches the project's local-first, no-new-infra posture; Mac-dev-hosted and single-device/single-user in practice. Disclosed limitation, not a production session store. |
 | Chunk rotation gap | Accepted, documented limitation | Stop/restart on `AVCaptureMovieFileOutput` has an inherent small gap; a seamless dual-buffer rotation is a larger AVFoundation effort, out of scope here. |
 | Persistence depth | New `GoalSession`/`GoalAttemptRecord` SwiftData models, no phase-frame imagery | Matches the project's every-session-is-saved precedent (History screen) without pulling in Assessment's P6c overlay machinery, which a pass/fail drill doesn't need. |
@@ -149,3 +184,8 @@ live feedback, reusing P4/P5/P6d's segmentation and rule-evaluation logic unchan
   (`backend/app/routers/segment.py`) is the direct model for the new chunk endpoint's per-request
   extract-and-infer step; the new piece is accumulating results *across* requests in a
   session-keyed buffer, which no existing endpoint does today.
+- `phases/2026-08-28-p7-goal-library-set-goal-2d/latency-findings.md` is a pre-implementation
+  latency review of this phase's as-planned design: measured with
+  `backend/tools/goal_latency_probe.py` and a 20-clip accuracy corpus, it found and fixed the two
+  blockers reflected above (the confirmation-lag rule, the fused pipeline, the `MIN_PEAK_SCORE`
+  margin) before `/phase` implementation starts.
