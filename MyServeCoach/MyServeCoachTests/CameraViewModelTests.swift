@@ -119,6 +119,29 @@ struct CameraViewModelTests {
         vm.toggleCamera()
         #expect(vm.cameraPosition == .back)
     }
+
+    @Test("startChunkedRecording sets recordingState to .recording and forwards to the mock")
+    func startChunkedRecordingSetsRecordingStateAndForwards() {
+        let mock = MockCameraService()
+        let vm = CameraViewModel(cameraService: mock)
+
+        vm.startChunkedRecording(chunkDuration: 2, onChunkFinalized: { _, _ in })
+
+        #expect(vm.recordingState == .recording)
+        #expect(mock.lastChunkDuration == 2)
+    }
+
+    @Test("stopChunkedRecording forwards to the mock without mutating recordingState")
+    func stopChunkedRecordingForwardsWithoutMutatingState() {
+        let mock = MockCameraService()
+        let vm = CameraViewModel(cameraService: mock)
+        vm.startChunkedRecording(chunkDuration: 2, onChunkFinalized: { _, _ in })
+
+        vm.stopChunkedRecording()
+
+        #expect(mock.stopChunkedRecordingCallCount == 1)
+        #expect(vm.recordingState == .recording)
+    }
 }
 
 // MARK: - Helpers
@@ -132,28 +155,4 @@ private enum MockError: Error {
 private struct MockPermissionChecker: PermissionChecking {
     let granted: Bool
     func checkPermission() async -> Bool { granted }
-}
-
-private final class MockCameraService: CameraServiceProtocol {
-    let session = AVCaptureSession()
-    private var recordingCompletion: ((Result<URL, Error>) -> Void)?
-
-    func configure(position: AVCaptureDevice.Position, sessionMode: SessionMode) throws {}
-    func startSession() {}
-    func stopSession() {}
-
-    func toggleCamera(currentPosition: AVCaptureDevice.Position) throws -> AVCaptureDevice.Position {
-        currentPosition == .back ? .front : .back
-    }
-
-    func startRecording(to url: URL, completion: @escaping (Result<URL, Error>) -> Void) {
-        recordingCompletion = completion
-    }
-
-    func stopRecording() {}
-
-    func triggerCompletion(result: Result<URL, Error>) {
-        recordingCompletion?(result)
-        recordingCompletion = nil
-    }
 }

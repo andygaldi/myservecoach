@@ -8,6 +8,7 @@ from app.engine.phases import (
     _find_serve_peaks,
     _frame_velocity,
     segment_serves,
+    segment_serves_with_peaks,
 )
 
 # FLOOR_Y/BOUNCE_WRIST_Y are specific to this file's fixtures — see conftest.py for the
@@ -245,3 +246,44 @@ def test_missing_neck_or_pelvis_excludes_frame_without_crashing():
     )
 
     assert peaks == [2]
+
+
+# ---------------------------------------------------------------------------
+# segment_serves_with_peaks (P7 Set Goal chunk-confirmation support)
+# ---------------------------------------------------------------------------
+
+def test_with_peaks_empty_frames_returns_empty_list():
+    assert segment_serves_with_peaks([]) == []
+
+
+def test_with_peaks_matches_segment_serves_segments():
+    frames = _build_two_serve_sequence(30.0)
+    plain = segment_serves(frames)
+    with_peaks = segment_serves_with_peaks(frames)
+
+    assert [segment for segment, _ in with_peaks] == plain
+
+
+def test_with_peaks_reports_each_segments_accepted_peak_timestamp():
+    fps = 30.0
+    hump1 = _hump(peak_y=PEAK_WRIST_Y, count=10, start_index=0, fps=fps)  # apex ~ t=0.15s
+    rest = _rest_burst(IDLE_WRIST_Y, count=55, start_index=10, fps=fps)
+    hump2 = _hump(peak_y=PEAK_WRIST_Y, count=10, start_index=65, fps=fps)  # apex ~ t=2.32s
+    frames = hump1 + rest + hump2
+
+    with_peaks = segment_serves_with_peaks(frames)
+
+    assert len(with_peaks) == 2
+    for segment, peak_ts in with_peaks:
+        first_ts, last_ts = segment[0].timestamp, segment[-1].timestamp
+        assert first_ts <= peak_ts <= last_ts
+
+
+def test_with_peaks_single_serve_reports_peak_timestamp():
+    frames = _hump(peak_y=PEAK_WRIST_Y, count=10, start_index=0, fps=30.0)
+    with_peaks = segment_serves_with_peaks(frames)
+
+    assert len(with_peaks) == 1
+    segment, peak_ts = with_peaks[0]
+    assert segment == frames
+    assert segment[0].timestamp <= peak_ts <= segment[-1].timestamp

@@ -10,7 +10,22 @@ protocol CameraServiceProtocol: AnyObject {
     func toggleCamera(currentPosition: AVCaptureDevice.Position) throws -> AVCaptureDevice.Position
     func startRecording(to url: URL, completion: @escaping (Result<URL, Error>) -> Void)
     func stopRecording()
+    func startChunkedRecording(chunkDuration: TimeInterval, onChunkFinalized: @escaping (URL?, Bool) -> Void)
+    func stopChunkedRecording()
 }
+
+// MARK: - Recording output seam (testability)
+
+// AVCaptureMovieFileOutput.startRecording crashes the process if called while not attached to a
+// running AVCaptureSession — which Simulator/CI can never provide (no camera hardware). This seam
+// lets tests substitute a non-AVFoundation fake to exercise the chunk state machine safely, while
+// production always uses the real movieOutput.
+protocol MovieRecordingOutput: AnyObject {
+    func startRecording(to outputFileURL: URL, recordingDelegate: AVCaptureFileOutputRecordingDelegate)
+    func stopRecording()
+}
+
+extension AVCaptureMovieFileOutput: MovieRecordingOutput {}
 
 // MARK: - Live Implementation
 
@@ -20,8 +35,18 @@ final class CameraService: NSObject, CameraServiceProtocol {
     private let sessionQueue = DispatchQueue(label: "com.myservecoach.CameraService.session")
     private var currentInput: AVCaptureDeviceInput?
     private let movieOutput = AVCaptureMovieFileOutput()
+    private let recordingOutput: MovieRecordingOutput
     private var recordingCompletion: ((Result<URL, Error>) -> Void)?
     private var isRecording = false
+    private var chunkOnFinalized: ((URL?, Bool) -> Void)?
+    private var chunkDuration: TimeInterval = 0
+    private var isChunking = false
+    private var chunkTimer: DispatchSourceTimer?
+
+    init(recordingOutput: MovieRecordingOutput? = nil) {
+        self.recordingOutput = recordingOutput ?? movieOutput
+        super.init()
+    }
 
     func configure(position: AVCaptureDevice.Position = .back, sessionMode: SessionMode) throws {
         var caught: Error?
@@ -69,17 +94,54 @@ final class CameraService: NSObject, CameraServiceProtocol {
             guard let self else { return }
             isRecording = true
             recordingCompletion = completion
-            movieOutput.startRecording(to: url, recordingDelegate: self)
+            recordingOutput.startRecording(to: url, recordingDelegate: self)
         }
     }
 
     func stopRecording() {
-        sessionQueue.async { [movieOutput] in
-            movieOutput.stopRecording()
+        sessionQueue.async { [recordingOutput] in
+            recordingOutput.stopRecording()
+        }
+    }
+
+    func startChunkedRecording(chunkDuration: TimeInterval, onChunkFinalized: @escaping (URL?, Bool) -> Void) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            isChunking = true
+            self.chunkDuration = chunkDuration
+            chunkOnFinalized = onChunkFinalized
+            _beginNextChunk()
+        }
+    }
+
+    func stopChunkedRecording() {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            isChunking = false
+            chunkTimer?.cancel()
+            chunkTimer = nil
+            recordingOutput.stopRecording()
         }
     }
 
     // MARK: - Private (session-queue only)
+
+    private func _beginNextChunk() {
+        let url = _tempChunkURL()
+        isRecording = true
+        recordingOutput.startRecording(to: url, recordingDelegate: self)
+        let timer = DispatchSource.makeTimerSource(queue: sessionQueue)
+        timer.schedule(deadline: .now() + chunkDuration)
+        timer.setEventHandler { [weak self] in self?.recordingOutput.stopRecording() }
+        timer.resume()
+        chunkTimer = timer
+    }
+
+    private func _tempChunkURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mov")
+    }
 
     private func _configure(position: AVCaptureDevice.Position, sessionMode: SessionMode) throws {
         session.beginConfiguration()
@@ -179,6 +241,21 @@ extension CameraService: AVCaptureFileOutputRecordingDelegate {
         sessionQueue.async { [weak self] in
             guard let self else { return }
             isRecording = false
+            if let chunkHandler = chunkOnFinalized {
+                let isFinal = !isChunking
+                if isFinal { chunkOnFinalized = nil } else { _beginNextChunk() }
+                // A non-final chunk's write error is dropped silently — the rotation continues via
+                // _beginNextChunk() above, losing only that chunk's upload. A final chunk's error
+                // still must notify the caller (nil URL, isFinal: true) — there's no future chunk to
+                // carry that signal, so silently dropping it here would leave the session's
+                // finalization (e.g. isFinalizing) stuck forever.
+                if error == nil {
+                    chunkHandler(outputFileURL, isFinal)
+                } else if isFinal {
+                    chunkHandler(nil, true)
+                }
+                return
+            }
             let completion = recordingCompletion
             recordingCompletion = nil
             let result: Result<URL, Error> = error.map { .failure($0) } ?? .success(outputFileURL)

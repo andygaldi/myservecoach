@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
-from app.services.pose_model import COCO17_KEYPOINT_NAMES, map_coco17_to_backend_schema, select_primary_person
+from app.services.pose_model import (
+    COCO17_KEYPOINT_NAMES,
+    RTMPoseModel,
+    map_coco17_to_backend_schema,
+    select_primary_person,
+)
 
 WIDTH = 100
 HEIGHT = 200
@@ -154,3 +159,40 @@ def test_select_primary_person_single_person_returns_zero():
     scores = np.array([sc])
 
     assert select_primary_person(keypoints, scores) == 0
+
+
+# --- RTMPoseModel.infer routing (Group 0 fused-path regression guard) ---
+
+
+class _StubBody:
+    """Stands in for rtmlib.Body — records that it was constructed/called, and returns one
+    person's worth of COCO-17 keypoints so the mapping pipeline runs end to end."""
+
+    instances: list["_StubBody"] = []
+
+    def __init__(self, backend: str, device: str):
+        self.backend = backend
+        self.device = device
+        self.call_count = 0
+        _StubBody.instances.append(self)
+
+    def __call__(self, image):
+        self.call_count += 1
+        keypoints, scores = _make_coco17_arrays()
+        return np.array([keypoints]), np.array([scores])
+
+
+def test_infer_with_no_bbox_routes_through_body_unchanged(monkeypatch):
+    """Regression guard: existing /v1/pose callers (no person_bbox) must still route through
+    rtmlib.Body exactly as before Group 0's fused path was added."""
+    _StubBody.instances.clear()
+    monkeypatch.setattr("app.services.pose_model.Body", _StubBody)
+
+    model = RTMPoseModel()
+    image = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+    result = model.infer(image)
+
+    assert len(_StubBody.instances) == 1
+    assert _StubBody.instances[0].call_count == 1
+    assert model._pose is None  # fused RTMPose path never touched
+    assert "nose" in result

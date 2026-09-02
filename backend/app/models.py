@@ -30,6 +30,7 @@ class AnalyzeRequest(BaseModel):
     frames: list[Frame] = Field(min_length=1)
     detections: list[list[Detection]] | None = None
     session_id: str | None = None
+    goal_rule_id: str | None = None
 
 
 class SegmentRequest(BaseModel):
@@ -91,10 +92,25 @@ class PhaseDetection(BaseModel):
     timestamp: float
 
 
+class GoalResult(BaseModel):
+    passed: bool
+    spoken_cue: str
+
+
 class AnalyzeResponse(BaseModel):
     cues: list[Cue] = Field(default_factory=list)
     summary: str | None = None
     phases: list[PhaseDetection] = Field(default_factory=list)
+    goal_result: GoalResult | None = None
+
+
+class GoalChunkResult(BaseModel):
+    segment_index: int
+    goal_result: GoalResult
+
+
+class GoalChunkResponse(BaseModel):
+    results: list[GoalChunkResult] = Field(default_factory=list)
 
 
 class PoseResponse(BaseModel):

@@ -334,3 +334,60 @@ async def test_cue_deviation_detail_survives_the_wire(transport, monkeypatch):
     assert cue.comparison == BALL_OFFSET_RULE.comparison
     assert cue.threshold == BALL_OFFSET_RULE.threshold
     assert cue.measured_value is not None
+
+
+# --- goal_rule_id / goal_result (P7 Set Goal extension) ---
+
+
+@pytest.mark.asyncio
+async def test_goal_rule_id_matching_firing_rule_returns_failed_goal_result(transport):
+    # trophy_hitting_elbow_shoulder_line fires on BAD_ELBOW_FRAME's real rules.json rule (~63°,
+    # outside the [155,180] range) — see phases/2026-08-28-p7-goal-library-set-goal-2d.
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/analyze",
+            json={
+                "frames": [BAD_ELBOW_FRAME],
+                "goal_rule_id": "trophy_hitting_elbow_shoulder_line",
+            },
+        )
+    assert response.status_code == 200
+    body = AnalyzeResponse.model_validate(response.json())
+    firing_cue = next(c for c in body.cues if c.rule_id == "trophy_hitting_elbow_shoulder_line")
+    assert body.goal_result is not None
+    assert body.goal_result.passed is False
+    assert body.goal_result.spoken_cue == firing_cue.message
+
+
+@pytest.mark.asyncio
+async def test_goal_rule_id_not_firing_returns_passed_goal_result(transport):
+    # trophy_toss_arm_straight does not fire on CLEAN_SERVE_FRAMES (only
+    # trophy_hitting_elbow_shoulder_line does), so the goal check passes.
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/analyze",
+            json={"frames": CLEAN_SERVE_FRAMES, "goal_rule_id": "trophy_toss_arm_straight"},
+        )
+    assert response.status_code == 200
+    body = AnalyzeResponse.model_validate(response.json())
+    assert body.goal_result is not None
+    assert body.goal_result.passed is True
+    assert body.goal_result.spoken_cue == "Nice serve — goal met!"
+
+
+@pytest.mark.asyncio
+async def test_unrecognized_goal_rule_id_returns_400(transport):
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v1/analyze", json={"frames": [VALID_FRAME], "goal_rule_id": "not_a_real_rule"}
+        )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_no_goal_rule_id_returns_none_goal_result(transport):
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/v1/analyze", json={"frames": CLEAN_SERVE_FRAMES})
+    assert response.status_code == 200
+    body = AnalyzeResponse.model_validate(response.json())
+    assert body.goal_result is None

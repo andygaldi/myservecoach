@@ -23,6 +23,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var stubsByHost: [String: Stub] = [:]
     nonisolated(unsafe) private static var lastBodyByHost: [String: Data] = [:]
+    nonisolated(unsafe) private static var lastURLByHost: [String: URL] = [:]
 
     /// A `http://<unique-host>.test/` base URL — pass to the service under test so its requests
     /// don't collide with any other concurrently-running test's stubbed state.
@@ -38,6 +39,11 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     static func lastBody(for baseURL: URL) -> Data? {
         guard let host = baseURL.host else { return nil }
         return lock.withLock { lastBodyByHost[host] }
+    }
+
+    static func lastURL(for baseURL: URL) -> URL? {
+        guard let host = baseURL.host else { return nil }
+        return lock.withLock { lastURLByHost[host] }
     }
 
     static func makeSession() -> URLSession {
@@ -56,6 +62,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         }
         let stub = Self.lock.withLock {
             Self.lastBodyByHost[host] = request.httpBodyStreamData() ?? request.httpBody
+            Self.lastURLByHost[host] = request.url
             return Self.stubsByHost[host] ?? Stub()
         }
 
