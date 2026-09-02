@@ -32,20 +32,38 @@ struct VideoSourceSelectionView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
 
+                if viewModel.selectedMode == .pro2D {
+                    Picker("Workflow", selection: $viewModel.selectedWorkflow) {
+                        ForEach(ProWorkflow.allCases) { workflow in
+                            Text(workflow.rawValue).tag(workflow)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                }
+
                 VStack(spacing: 16) {
                     sourceButton(
                         title: "Record New",
                         subtitle: "Use the camera",
                         icon: "video.circle.fill",
-                        action: { viewModel.navigateToRecord = true }
+                        action: {
+                            if viewModel.selectedMode == .pro2D, viewModel.selectedWorkflow == .setGoal {
+                                viewModel.navigateToGoalSelection = true
+                            } else {
+                                viewModel.navigateToRecord = true
+                            }
+                        }
                     )
 
-                    sourceButton(
-                        title: "Choose from Library",
-                        subtitle: "Pick an existing clip",
-                        icon: "photo.on.rectangle.angled",
-                        action: { Task { await viewModel.handleLibraryButtonTap() } }
-                    )
+                    if !(viewModel.selectedMode == .pro2D && viewModel.selectedWorkflow == .setGoal) {
+                        sourceButton(
+                            title: "Choose from Library",
+                            subtitle: "Pick an existing clip",
+                            icon: "photo.on.rectangle.angled",
+                            action: { Task { await viewModel.handleLibraryButtonTap() } }
+                        )
+                    }
 
                     if viewModel.photoPermissionDenied {
                         photoPermissionDeniedBanner
@@ -91,6 +109,14 @@ struct VideoSourceSelectionView: View {
                         ),
                         onDone: { viewModel.dismissAssessmentResults() }
                     )
+                }
+            }
+            .navigationDestination(isPresented: $viewModel.navigateToGoalSelection) {
+                GoalSelectionView(onGoalSelected: viewModel.selectGoal)
+            }
+            .navigationDestination(isPresented: $viewModel.navigateToSetGoalSession) {
+                if let goal = viewModel.selectedGoal {
+                    SetGoalRecordingView(goal: goal, onDone: viewModel.dismissSetGoalSession)
                 }
             }
             .photosPicker(

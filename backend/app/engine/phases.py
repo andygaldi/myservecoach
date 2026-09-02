@@ -214,6 +214,32 @@ def segment_serves(
     peaks (see _place_boundary) — that logic can no longer add, remove, or merge a serve, only
     slide where the cut falls.
     """
+    return [
+        segment
+        for segment, _ in segment_serves_with_peaks(
+            frames,
+            min_rest_seconds=min_rest_seconds,
+            velocity_threshold=velocity_threshold,
+            floor_k=floor_k,
+            min_peak_separation_seconds=min_peak_separation_seconds,
+            min_peak_score=min_peak_score,
+        )
+    ]
+
+
+def segment_serves_with_peaks(
+    frames: list[Frame],
+    min_rest_seconds: float = MIN_REST_SECONDS,
+    velocity_threshold: float = LOW_MOTION_VELOCITY_THRESHOLD,
+    floor_k: float = HITTING_WRIST_FLOOR_K,
+    min_peak_separation_seconds: float = MIN_PEAK_SEPARATION_SECONDS,
+    min_peak_score: float = MIN_PEAK_SCORE,
+) -> list[tuple[list[Frame], float]]:
+    """Same split as `segment_serves`, additionally pairing each segment with its accepted
+    peak's timestamp — the live Set Goal chunk endpoint needs a segment's peak to decide whether
+    it's old enough (behind the buffer's trailing edge) to be safe to score, without re-deriving
+    peaks itself.
+    """
     if not frames:
         return []
 
@@ -225,19 +251,19 @@ def segment_serves(
     if not peaks:
         return []
     if len(peaks) == 1:
-        return [frames]
+        return [(frames, frames[peaks[0]].timestamp)]
 
     boundaries = [
         _place_boundary(frames, peaks[i], peaks[i + 1], velocity_threshold, min_rest_seconds)
         for i in range(len(peaks) - 1)
     ]
 
-    segments: list[list[Frame]] = []
+    segments: list[tuple[list[Frame], float]] = []
     start = 0
-    for boundary in boundaries:
-        segments.append(frames[start : boundary + 1])
+    for i, boundary in enumerate(boundaries):
+        segments.append((frames[start : boundary + 1], frames[peaks[i]].timestamp))
         start = boundary + 1
-    segments.append(frames[start:])
+    segments.append((frames[start:], frames[peaks[-1]].timestamp))
     return segments
 
 

@@ -84,6 +84,15 @@ final class CameraViewModel {
         }
     }
 
+    func startChunkedRecording(chunkDuration: TimeInterval, onChunkFinalized: @escaping (URL?, Bool) -> Void) {
+        recordingState = .recording
+        cameraService.startChunkedRecording(chunkDuration: chunkDuration, onChunkFinalized: onChunkFinalized)
+    }
+
+    func stopChunkedRecording() {
+        cameraService.stopChunkedRecording()
+    }
+
     func useClip() {
         if case .previewing(let url) = recordingState {
             let c = coordinator

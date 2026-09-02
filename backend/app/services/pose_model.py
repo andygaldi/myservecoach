@@ -99,11 +99,40 @@ class RTMPoseModel:
         self.device = device or os.environ.get("POSE_MODEL_DEVICE", "cpu")
         self.backend = backend
         self._body: Body | None = None
+        self._pose = None  # standalone rtmlib.RTMPose, lazily loaded only for the fused path
 
-    def infer(self, image: np.ndarray) -> dict[str, Keypoint]:
+    def infer(self, image: np.ndarray, person_bbox: list[float] | None = None) -> dict[str, Keypoint]:
+        """Runs pose inference. With no `person_bbox`, behaves exactly as before (routes through
+        `rtmlib.Body`, which runs its own YOLOX-m person detector). With a `person_bbox` (pixel
+        xyxy, unflipped/unnormalized — see `ObjectDetectionModel.infer_with_person`), skips that
+        redundant detector and feeds the box straight to a standalone `RTMPose` on the same
+        checkpoint/input size `Body` uses — the fused path measured in `latency-findings.md`.
+        """
+        if person_bbox is not None:
+            return self._infer_fused(image, person_bbox)
         if self._body is None:
             self._body = Body(backend=self.backend, device=self.device)
         keypoints, scores = self._body(image)
+        if len(keypoints) == 0:
+            return {}
+        h, w = image.shape[:2]
+        primary = select_primary_person(keypoints, scores)
+        return map_coco17_to_backend_schema(keypoints[primary], scores[primary], w, h)
+
+    def _infer_fused(self, image: np.ndarray, person_bbox: list[float]) -> dict[str, Keypoint]:
+        if self._pose is None:
+            from rtmlib import RTMPose
+
+            # Resolve the exact pose checkpoint/input size Body would use, without paying for
+            # its bundled YOLOX-m detector at inference time.
+            reference = Body(backend=self.backend, device="cpu")
+            self._pose = RTMPose(
+                onnx_model=reference.pose_model.onnx_model,
+                model_input_size=reference.pose_model.model_input_size,
+                backend=self.backend,
+                device=self.device,
+            )
+        keypoints, scores = self._pose(image, bboxes=[person_bbox])
         if len(keypoints) == 0:
             return {}
         h, w = image.shape[:2]

@@ -256,6 +256,32 @@ struct VideoSourceSelectionViewModelTests {
         #expect(vm.errorMessage == nil)
     }
 
+    // MARK: - Set Goal workflow routing (Phase P7)
+
+    @Test("selectGoal sets selectedGoal and flips navigation flags")
+    func selectGoalSetsStateAndNavigationFlags() {
+        let vm = makeVM()
+        vm.navigateToGoalSelection = true
+
+        let goal = GoalCatalog.all[0]
+        vm.selectGoal(goal)
+
+        #expect(vm.selectedGoal == goal)
+        #expect(vm.navigateToGoalSelection == false)
+        #expect(vm.navigateToSetGoalSession == true)
+    }
+
+    @Test("dismissSetGoalSession resets navigation and selectedGoal")
+    func dismissSetGoalSessionResetsState() {
+        let vm = makeVM()
+        vm.selectGoal(GoalCatalog.all[0])
+
+        vm.dismissSetGoalSession()
+
+        #expect(vm.navigateToSetGoalSession == false)
+        #expect(vm.selectedGoal == nil)
+    }
+
     // MARK: - Import re-encode gating (Phase P6b)
 
     @Test("Pro 2D mode: imported clip is re-encoded before analysis")

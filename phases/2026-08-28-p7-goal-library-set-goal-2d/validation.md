@@ -120,5 +120,68 @@ and `ContentView` are untouched.
 
 ## Run Notes
 
-_(Filled in during `/phase` / `/phase-review` — sweep results, defects found and fixed, manual
-device check outcome.)_
+### `/phase-review` deep review (2026-09-02)
+
+Three-agent review (correctness / design-simplicity / spec-compliance) against the full branch
+diff. Findings and dispositions:
+
+- **Fixed — final-chunk write error wedged the session forever.** `CameraService.fileOutput(...)`
+  dropped the finalize callback entirely when the *last* chunk's write failed (silent-drop was
+  correct for non-final chunks, but the final chunk has no next chunk to recover on).
+  `startChunkedRecording`'s callback signature changed to `(URL?, Bool) -> Void`; a final-chunk
+  write error now calls the handler with `(nil, true)` instead of not calling it at all.
+  `SetGoalSessionViewModel.handleChunk` treats a nil URL as "this chunk's file is gone" — skips
+  upload, sets `errorMessage`, still finalizes. New tests:
+  `CameraServiceTests.chunkFinalizeErrorOnFinalChunkStillNotifiesHandler`,
+  `SetGoalSessionViewModelTests.nilFinalChunkURLStillFinalizes`.
+- **Fixed — `cameraViewModel.recordingState` never reset after a Set Goal session.** Plan
+  (plan.md:380-385) assigns `SetGoalSessionViewModel` the job of resetting `recordingState` to
+  `.idle` once the final chunk is handled, mirroring `useClip()`/`retake()`; this was never wired
+  up. `finalizeVideo()` now resets it. New test:
+  `SetGoalSessionViewModelTests.finalizeResetsRecordingState`.
+- **Fixed — duplicated attempt-row markup.** The pass/fail + spoken-cue row was written out
+  verbatim in both `SetGoalRecordingView`'s summary sheet and `GoalSessionHistoryDetailView`.
+  Extracted to a shared `GoalAttemptRowView`.
+- **Fixed — `infer_with_person` had no direct unit test.** Plan item 0e asked for direct coverage
+  (pixel xyxy unflipped/unnormalized; `None` when no person clears threshold); only its
+  `select_largest_person_box` helper was tested directly. Added
+  `test_infer_with_person_returns_pixel_xyxy_unflipped_unnormalized_alongside_detections` and
+  `test_infer_with_person_returns_none_when_no_person_clears_threshold` to
+  `test_object_detection.py`, stubbing `ObjectDetectionModel._model`.
+- Both suites re-verified green after fixes: `scripts/verify.sh backend` (233 passed, 3 skipped),
+  `scripts/verify.sh ios` (202 passed, 0 failed).
+
+**Left open — hard gate, not deferred:** the manual real-device checks (Group 4 chunk-rotation,
+Group 6 audio-quality, Group 8 end-to-end + the median ≤5s/max ≤8s contact-to-cue latency bar)
+are still unrun. These require a physical device and cannot be closed by code review; outcomes to
+be recorded here once run.
+
+### Manual real-device checks (2026-09-02)
+
+Run per `manual-device-checks.md` on a physical iPhone, backend on Mac (M3 Max) with
+`DETECTION_MODEL_DEVICE=mps`, `fused/mps` pipeline.
+
+- **Check A — chunk rotation: PASS.** Recorded several minutes across many 2s chunk boundaries;
+  app stayed responsive throughout, no crash/hang. Console output otherwise clean aside from
+  benign system-level AVFoundation/Fig* log noise unrelated to app logic.
+- **Check B — audio quality: PASS.** Spoken cues audible at normal volume, timed usefully after
+  each serve, spoken clearly.
+- **Check C — latency: PASS.** Eyeballed, contact→cue consistently ~4s across serves — within the
+  median ≤5s / max ≤8s bar. Config: `fused/mps`.
+- **Check D — end-to-end: PASS.** Summary tally correct, Save worked, session reopened correctly
+  from History with matching goal, attempts, pass/fail, and spoken cues.
+
+All four checks pass. Group 8 hard gate is closed — `/merge` is unblocked.
+
+**Follow-ups noted during manual testing (non-blocking, out of scope for P7):**
+- Set Goal recording only supports the rear camera; front camera isn't selectable.
+- No way to discard a Set Goal session from the results screen — needs a Cancel/back-to-mode-
+  selection action instead of forcing a Save.
+- Lite mode still shows the Assessment/Set Goal toggle on launch; it should only appear for
+  Pro 2D.
+- Toggle state bug: Lite → Record New → back arrow makes the Assessment/Set Goal toggle disappear
+  even after switching back to Pro 2D; requires Pro 2D → Record New → back arrow to restore it.
+- Future enhancement: show a still frame with pose skeleton overlay per serve on the results page
+  (like the Assessment history page).
+- Future enhancement: more specific spoken cues on goal miss (e.g. "elbow too low" instead of
+  "elbow not in line with shoulders at trophy pose").

@@ -7,7 +7,7 @@ struct MyServeCoachApp: App {
 
     init() {
         do {
-            container = try ModelContainer(for: ServeSession.self)
+            container = try ModelContainer(for: ServeSession.self, GoalSession.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }

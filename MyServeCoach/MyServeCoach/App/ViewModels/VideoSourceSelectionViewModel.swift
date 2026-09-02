@@ -22,6 +22,13 @@ final class VideoSourceSelectionViewModel {
     private(set) var assessmentResults: [AssessmentServeResult]?
     private(set) var pendingInputType: String = "imported"
 
+    // Not persisted (unlike selectedMode) — resets to Assessment each visit. Only read when
+    // selectedMode == .pro2D.
+    var selectedWorkflow: ProWorkflow = .assessment
+    var navigateToGoalSelection = false
+    private(set) var selectedGoal: GoalDefinition?
+    var navigateToSetGoalSession = false
+
     // Not @AppStorage: @Observable classes don't mix cleanly with that property wrapper.
     // UserDefaults-backed directly instead; persists the last-selected mode across sessions.
     // `defaults` is injectable (default `.standard`) so tests can use an isolated suite rather
@@ -190,6 +197,17 @@ final class VideoSourceSelectionViewModel {
             try? FileManager.default.removeItem(at: url)
             pendingVideoURL = nil
         }
+    }
+
+    func selectGoal(_ goal: GoalDefinition) {
+        selectedGoal = goal
+        navigateToGoalSelection = false
+        navigateToSetGoalSession = true
+    }
+
+    func dismissSetGoalSession() {
+        navigateToSetGoalSession = false
+        selectedGoal = nil
     }
 
 }

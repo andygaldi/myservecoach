@@ -227,9 +227,32 @@ Noise scales as roughly `dt^-0.22` (temporally correlated, not white), so 60fps 
 
 **Escalates the handedness seam.** `HANDEDNESS` (`phases.py:13`) hardcodes a right-handed server. Today a wrong hitting side produces wrong cues; once the count derives from the hitting wrist it produces the wrong *serve count* — so P7b's handedness note is promoted from known limitation to prerequisite. Requires P6b. **Lite mode is untouched** — `segment_serves` is Pro-path only.
 
-### Phase P7 — Goal Library & Set Goal Session Mode (2D)
+### Phase P7 — Goal Library & Set Goal Session Mode (2D) ✅
 
 Continuous recording session with automatic per-serve detection (P4) and per-serve analysis. Define a goal catalog; backend returns `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. Deliver audible pass/fail feedback via `AVSpeechSynthesizer` so the player can stay focused on the court between serves. Mac-hosted; becomes field-portable after the P17 Jetson migration.
+
+### Phase P7a — Set Goal UX Follow-Ons (2D)
+
+Small, independent fixes and enhancements surfaced during P7's manual real-device testing
+(`phases/2026-08-28-p7-goal-library-set-goal-2d/validation.md` Run Notes), scheduled ahead of
+P7b so the second camera angle isn't calibrated on top of a still-rough Set Goal UX.
+
+- **Front camera for Set Goal.** Recording is currently locked to the rear camera; add front-camera
+  selection to the Set Goal recording flow.
+- **Cancel/discard from the results screen.** No way to abandon a Set Goal session without saving —
+  add a Cancel action that returns to mode selection without persisting.
+- **Lite mode hides the Assessment/Set Goal toggle.** The toggle is Pro-2D-only but currently
+  remains visible after switching to Lite; should disappear.
+- **Toggle-visibility state bug.** Lite → Record New → back arrow leaves the Assessment/Set Goal
+  toggle hidden even after switching back to Pro 2D, until a Pro 2D → Record New → back-arrow cycle
+  restores it. Root-cause and fix the underlying state, not just the symptom.
+- **Skeleton overlay on Set Goal results.** Show a still frame with pose skeleton overlaid per serve
+  on the results page, matching the Assessment history page's treatment.
+- **More specific spoken cues on goal miss.** Replace generic phrasing ("elbow not in line with
+  shoulders at trophy pose") with more actionable cues (e.g. "elbow too low").
+
+Requires P7. Lite mode is untouched except for the toggle-visibility fixes above, which only
+affect the Pro-2D/Lite mode-selector shell, not Lite's pipeline or views.
 
 ### Phase P7b — Behind-Server Camera Angle (2D)
 

@@ -52,6 +52,11 @@ class _Rule(BaseModel):
 
 _RULES: list[_Rule] = [_Rule(**r) for r in json.loads(_RULES_PATH.read_text())["rules"]]
 
+# The drift-check surface for Set Goal's goal_rule_id validation (Group 1/2) — computed once at
+# import time alongside _RULES, so a goal that no longer names a real rule is rejected at request
+# time rather than silently no-op'ing.
+RULE_IDS: frozenset[str] = frozenset(rule.id for rule in _RULES)
+
 
 def compute_metric_value(
     frame: Frame, metric: str, joints: list[str], detections: list[Detection] | None = None
