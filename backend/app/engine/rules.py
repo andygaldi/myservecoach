@@ -57,6 +57,10 @@ _RULES: list[_Rule] = [_Rule(**r) for r in json.loads(_RULES_PATH.read_text())["
 # time rather than silently no-op'ing.
 RULE_IDS: frozenset[str] = frozenset(rule.id for rule in _RULES)
 
+# Looks up a rule's own spec (notably `.phase`) by id, regardless of whether it fired — used by
+# score_segment to report which ServePhase a goal's frame should come from.
+RULES_BY_ID: dict[str, _Rule] = {rule.id: rule for rule in _RULES}
+
 
 def compute_metric_value(
     frame: Frame, metric: str, joints: list[str], detections: list[Detection] | None = None

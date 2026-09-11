@@ -11,27 +11,40 @@ import UIKit
 protocol PhaseFrameImageProviding: Sendable {
     /// Returns JPEG data keyed by the requested timestamp. Timestamps whose extraction failed are
     /// simply absent from the result — extraction is best-effort per frame.
-    func imageData(at seconds: [Double], from videoURL: URL) async throws -> [Double: Data]
+    ///
+    /// `tolerance` defaults to `.zero` (Assessment's exact-seek behavior, unchanged). Set Goal
+    /// passes a small nonzero tolerance instead — see `PhaseFrameImageExtractor`'s own comment on
+    /// why exact seeks matter for Assessment but not for Set Goal.
+    func imageData(at seconds: [Double], from videoURL: URL, tolerance: CMTime) async throws -> [Double: Data]
+}
+
+extension PhaseFrameImageProviding {
+    func imageData(at seconds: [Double], from videoURL: URL) async throws -> [Double: Data] {
+        try await imageData(at: seconds, from: videoURL, tolerance: .zero)
+    }
 }
 
 struct PhaseFrameImageExtractor: PhaseFrameImageProviding {
     private static let timescale: CMTimeScale = 600
 
-    func imageData(at seconds: [Double], from videoURL: URL) async throws -> [Double: Data] {
+    func imageData(at seconds: [Double], from videoURL: URL, tolerance: CMTime = .zero) async throws -> [Double: Data] {
         guard !seconds.isEmpty else { return [:] }
 
         let asset = AVURLAsset(url: videoURL)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        // Exact seeks, deliberately unlike Lite's `FrameThumbnailGenerator` (±0.1s). The overlay
-        // draws this frame's keypoints *on top of* this image, so the two must be the same frame.
-        // The backend samples at `DEFAULT_STRIDE = 2` (backend/app/routers/segment.py) — ~67ms
-        // apart at 30fps — so a ±0.1s tolerance would allow the returned image to be up to 1.5
-        // sampled frames away from the keypoints, floating the highlighted limb off the body at
-        // contact, the fastest-moving moment of the serve. Lite can afford the tolerance because
-        // it draws nothing over its thumbnails; this path cannot.
-        generator.requestedTimeToleranceBefore = .zero
-        generator.requestedTimeToleranceAfter = .zero
+        // Exact seeks by default, deliberately unlike Lite's `FrameThumbnailGenerator` (±0.1s).
+        // Assessment's overlay draws its keypoints *on top of* this image, so the two must be the
+        // same frame. The backend samples at `DEFAULT_STRIDE = 2` (backend/app/routers/segment.py)
+        // — ~67ms apart at 30fps — so a ±0.1s tolerance would allow the returned image to be up to
+        // 1.5 sampled frames away from the keypoints, floating the highlighted limb off the body
+        // at contact, the fastest-moving moment of the serve. Lite can afford the tolerance
+        // because it draws nothing over its thumbnails; Assessment cannot. Set Goal passes a
+        // small nonzero `tolerance` instead, to absorb its own backend timestamp's known drift
+        // (see requirements.md's "Known timing-precision limitation") rather than risk silently
+        // returning no frame at all.
+        generator.requestedTimeToleranceBefore = tolerance
+        generator.requestedTimeToleranceAfter = tolerance
 
         // Key the round-trip on CMTime.value rather than the Double: CMTime(seconds:) is lossy
         // for values like 1/3, so comparing `requestedTime.seconds` back to the original Double

@@ -1,5 +1,7 @@
+import AVFoundation
 import Foundation
 import SwiftData
+import UIKit
 import Testing
 @testable import MyServeCoach
 
@@ -51,6 +53,16 @@ struct SetGoalSessionViewModelTests {
         return ModelContext(container)
     }
 
+    private func jpeg() -> Data {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 40), format: format).image { ctx in
+            UIColor.systemTeal.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 20, height: 40))
+        }
+        return image.jpegData(compressionQuality: 0.7)!
+    }
+
     @Test("chunk finalize uploads with correct params and processes results")
     func chunkFinalizeUploadsAndProcessesResults() async throws {
         let mockCamera = MockCameraService()
@@ -58,7 +70,7 @@ struct SetGoalSessionViewModelTests {
         let spoken = MockSpokenFeedbackService()
         let concatenator = MockChunkVideoConcatenator()
         goalService.handler = { _, _, _, _ in
-            [GoalChunkResult(segmentIndex: 0, goalResult: GoalResult(passed: false, spokenCue: "Keep arm straighter"))]
+            [GoalChunkResult(segmentIndex: 0, goalResult: GoalResult(passed: false, spokenCue: "Keep arm straighter", phase: "contact"))]
         }
         let vm = SetGoalSessionViewModel(
             goal: goal,
@@ -106,7 +118,7 @@ struct SetGoalSessionViewModelTests {
 
         // A subsequent successful chunk still processes normally.
         goalService.handler = { _, _, _, _ in
-            [GoalChunkResult(segmentIndex: 1, goalResult: GoalResult(passed: true, spokenCue: "Nice serve"))]
+            [GoalChunkResult(segmentIndex: 1, goalResult: GoalResult(passed: true, spokenCue: "Nice serve", phase: "contact"))]
         }
         mockCamera.triggerChunk(url: URL(fileURLWithPath: "/tmp/chunk2.mov"), isFinal: false)
         await waitUntil { vm.attempts.count == 1 }
@@ -152,7 +164,7 @@ struct SetGoalSessionViewModelTests {
         let spoken = MockSpokenFeedbackService()
         let concatenator = MockChunkVideoConcatenator()
         goalService.handler = { _, _, _, _ in
-            [GoalChunkResult(segmentIndex: 0, goalResult: GoalResult(passed: false, spokenCue: "Keep arm straighter"))]
+            [GoalChunkResult(segmentIndex: 0, goalResult: GoalResult(passed: false, spokenCue: "Keep arm straighter", phase: "contact"))]
         }
         let vm = SetGoalSessionViewModel(
             goal: goal,
@@ -208,13 +220,13 @@ struct SetGoalSessionViewModelTests {
 
         // Resolve in order: chunk1 (dropped — should be ignored), chunk2, chunk3.
         await gate.resolveNext(with: .success([
-            GoalChunkResult(segmentIndex: 0, goalResult: GoalResult(passed: true, spokenCue: "should be ignored"))
+            GoalChunkResult(segmentIndex: 0, goalResult: GoalResult(passed: true, spokenCue: "should be ignored", phase: "contact"))
         ]))
         await gate.resolveNext(with: .success([
-            GoalChunkResult(segmentIndex: 1, goalResult: GoalResult(passed: true, spokenCue: "kept 2"))
+            GoalChunkResult(segmentIndex: 1, goalResult: GoalResult(passed: true, spokenCue: "kept 2", phase: "contact"))
         ]))
         await gate.resolveNext(with: .success([
-            GoalChunkResult(segmentIndex: 2, goalResult: GoalResult(passed: false, spokenCue: "kept 3"))
+            GoalChunkResult(segmentIndex: 2, goalResult: GoalResult(passed: false, spokenCue: "kept 3", phase: "contact"))
         ]))
         await waitUntil { vm.attempts.count == 2 }
 
@@ -246,6 +258,47 @@ struct SetGoalSessionViewModelTests {
         #expect(vm.videoURL == concatenator.resultURL)
     }
 
+    // `discard()` takes no `ModelContext` — it structurally cannot call `context.insert(_:)`, so
+    // there's nothing to assert about persistence here beyond the type signature itself. "Doesn't
+    // persist" is actually a caller-side contract (`SetGoalRecordingView`'s Discard button calls
+    // `discard()` then `onDone()`, never `persist(to:)`) verified by Group 7's manual device pass.
+    @Test("discard() removes the concatenated video and chunk files from disk")
+    func discardRemovesFiles() async throws {
+        let mockCamera = MockCameraService()
+        let goalService = MockGoalSessionService()
+        let spoken = MockSpokenFeedbackService()
+        let concatenator = MockChunkVideoConcatenator()
+        let tempDir = FileManager.default.temporaryDirectory
+        let chunkURL = tempDir.appendingPathComponent("\(UUID().uuidString).mov")
+        let concatenatedURL = tempDir.appendingPathComponent("\(UUID().uuidString).mov")
+        try Data().write(to: chunkURL)
+        try Data().write(to: concatenatedURL)
+        concatenator.resultURL = concatenatedURL
+        goalService.handler = { _, _, _, _ in
+            [GoalChunkResult(segmentIndex: 0, goalResult: GoalResult(passed: true, spokenCue: "Nice serve", phase: "contact"))]
+        }
+        let vm = SetGoalSessionViewModel(
+            goal: goal,
+            cameraViewModel: CameraViewModel(cameraService: mockCamera),
+            goalSessionService: goalService,
+            spokenFeedback: spoken,
+            concatenator: concatenator
+        )
+
+        vm.startSession()
+        vm.stopSession()
+        mockCamera.triggerChunk(url: chunkURL, isFinal: true)
+        await waitUntil { vm.videoURL != nil }
+
+        #expect(FileManager.default.fileExists(atPath: chunkURL.path))
+        #expect(FileManager.default.fileExists(atPath: concatenatedURL.path))
+
+        vm.discard()
+
+        #expect(!FileManager.default.fileExists(atPath: chunkURL.path))
+        #expect(!FileManager.default.fileExists(atPath: concatenatedURL.path))
+    }
+
     @Test("finalizing the session resets the camera view model's recordingState to idle")
     func finalizeResetsRecordingState() async throws {
         let mockCamera = MockCameraService()
@@ -268,5 +321,98 @@ struct SetGoalSessionViewModelTests {
         await waitUntil { vm.isFinalizing == false }
 
         #expect(cameraViewModel.recordingState == .idle)
+    }
+
+    @Test("finalizing extracts a stillImage for every attempt with a phaseFrame")
+    func finalizeExtractsStillImages() async throws {
+        let mockCamera = MockCameraService()
+        let goalService = MockGoalSessionService()
+        let spoken = MockSpokenFeedbackService()
+        let concatenator = MockChunkVideoConcatenator()
+        let imageProvider = MockPhaseFrameImageProvider()
+        let frame = BackendFrame(timestamp: 1.5, keypoints: [:])
+        let stillData = jpeg()
+        imageProvider.dataBySeconds = [1.5: stillData]
+        goalService.handler = { _, _, _, _ in
+            [GoalChunkResult(
+                segmentIndex: 0,
+                goalResult: GoalResult(passed: false, spokenCue: "Keep arm straighter", phase: "contact"),
+                phaseFrame: GoalPhaseFrame(frame: frame, detections: [])
+            )]
+        }
+        let vm = SetGoalSessionViewModel(
+            goal: goal,
+            cameraViewModel: CameraViewModel(cameraService: mockCamera),
+            goalSessionService: goalService,
+            spokenFeedback: spoken,
+            concatenator: concatenator,
+            imageProvider: imageProvider
+        )
+
+        vm.startSession()
+        vm.stopSession()
+        mockCamera.triggerChunk(url: URL(fileURLWithPath: "/tmp/chunk1.mov"), isFinal: true)
+        await waitUntil { vm.isFinalizing == false }
+
+        #expect(imageProvider.lastRequestedSeconds == [1.5])
+        #expect(vm.attempts[0].stillImage != nil)
+    }
+
+    @Test("persist(to:) attaches a GoalPhaseFrameRecord with cueJSON on a miss, nil on a pass")
+    func persistAttachesGoalPhaseFrameRecord() async throws {
+        let mockCamera = MockCameraService()
+        let goalService = MockGoalSessionService()
+        let spoken = MockSpokenFeedbackService()
+        let concatenator = MockChunkVideoConcatenator()
+        let imageProvider = MockPhaseFrameImageProvider()
+        let missFrame = BackendFrame(timestamp: 1.0, keypoints: [:])
+        let passFrame = BackendFrame(timestamp: 2.0, keypoints: [:])
+        imageProvider.dataBySeconds = [1.0: jpeg(), 2.0: jpeg()]
+        let missCue = Cue(
+            ruleId: "trophy_toss_arm_straight", phase: "trophy_pose", message: "Straighten your arm",
+            severity: "major", metric: nil, joints: ["left_elbow"], measuredValue: nil,
+            comparison: nil, threshold: nil, thresholdMin: nil, thresholdMax: nil
+        )
+        goalService.handler = { _, _, _, _ in
+            [
+                GoalChunkResult(
+                    segmentIndex: 0,
+                    goalResult: GoalResult(passed: false, spokenCue: "Keep arm straighter", phase: "contact", cue: missCue),
+                    phaseFrame: GoalPhaseFrame(frame: missFrame, detections: [])
+                ),
+                GoalChunkResult(
+                    segmentIndex: 1,
+                    goalResult: GoalResult(passed: true, spokenCue: "Nice serve", phase: "contact"),
+                    phaseFrame: GoalPhaseFrame(frame: passFrame, detections: [])
+                ),
+            ]
+        }
+        let vm = SetGoalSessionViewModel(
+            goal: goal,
+            cameraViewModel: CameraViewModel(cameraService: mockCamera),
+            goalSessionService: goalService,
+            spokenFeedback: spoken,
+            concatenator: concatenator,
+            imageProvider: imageProvider
+        )
+
+        vm.startSession()
+        vm.stopSession()
+        mockCamera.triggerChunk(url: URL(fileURLWithPath: "/tmp/chunk1.mov"), isFinal: true)
+        await waitUntil { vm.isFinalizing == false }
+        #expect(vm.attempts.count == 2)
+
+        let context = try makeInMemoryContext()
+        vm.persist(to: context)
+        try context.save()
+
+        let fetched = try #require(try context.fetch(FetchDescriptor<GoalSession>()).first)
+        let attempts = fetched.attempts.sorted { $0.segmentIndex < $1.segmentIndex }
+        let missRecord = try #require(attempts[0].phaseFrame)
+        #expect(missRecord.frameTimestamp == 1.0)
+        #expect(missRecord.cueJSON != nil)
+        let passRecord = try #require(attempts[1].phaseFrame)
+        #expect(passRecord.frameTimestamp == 2.0)
+        #expect(passRecord.cueJSON == nil)
     }
 }

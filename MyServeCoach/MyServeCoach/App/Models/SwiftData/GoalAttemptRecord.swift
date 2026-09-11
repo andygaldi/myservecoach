@@ -9,6 +9,7 @@ final class GoalAttemptRecord {
     var spokenCue: String = ""
     var timestamp: Date = Date.now
     var session: GoalSession?
+    @Relationship(deleteRule: .cascade) var phaseFrame: GoalPhaseFrameRecord?
 
     init(segmentIndex: Int, passed: Bool, spokenCue: String) {
         self.segmentIndex = segmentIndex

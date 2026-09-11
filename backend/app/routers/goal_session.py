@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.models import Frame, GoalChunkResponse, GoalChunkResult
+from app.models import Frame, GoalChunkResponse, GoalChunkResult, GoalPhaseFrame
 from app.engine.phases import MIN_PEAK_SEPARATION_SECONDS, segment_serves_with_peaks, slice_detections_by_segments
 from app.engine.rules import RULE_IDS
 from app.engine.scoring import score_segment
@@ -11,7 +11,7 @@ from app.routers.segment import DEFAULT_STRIDE
 from app.services import goal_session_buffer
 from app.services.object_detection import ObjectDetectionModel, get_object_detection_model
 from app.services.pose_model import RTMPoseModel, get_pose_model
-from app.services.video_sampler import sample_video_frames
+from app.services.video_sampler import sample_video_frames, video_duration_seconds
 
 router = APIRouter()
 
@@ -61,6 +61,7 @@ def goal_session_chunk(  # sync def, not async — see latency note below
     try:
         try:
             sampled = sample_video_frames(tmp_path, stride)
+            chunk_duration = video_duration_seconds(tmp_path)
         except ValueError:
             raise HTTPException(400, "could not open video")
 
@@ -70,7 +71,7 @@ def goal_session_chunk(  # sync def, not async — see latency note below
             keypoints = pose_model.infer(img, person_bbox=person_bbox)
             chunk_triples.append((ts, Frame(timestamp=ts, keypoints=keypoints), detections))
 
-        buffer = goal_session_buffer.append_chunk(session_id, stride, chunk_triples)
+        buffer = goal_session_buffer.append_chunk(session_id, chunk_duration, chunk_triples)
 
         segments_with_peaks = segment_serves_with_peaks(buffer.frames)
         segments = [segment for segment, _ in segments_with_peaks]
@@ -87,7 +88,20 @@ def goal_session_chunk(  # sync def, not async — see latency note below
         results: list[GoalChunkResult] = []
         for i in range(buffer.reported_count, confirmed_count):
             scored = score_segment(segments[i], seg_detections[i], goal_rule_id=goal_rule_id)
-            results.append(GoalChunkResult(segment_index=i, goal_result=scored.goal_result))
+            phase_detection = next(
+                (p for p in scored.phases if p.phase == scored.goal_result.phase), None
+            )
+            phase_frame = None
+            if phase_detection is not None:
+                phase_frame = GoalPhaseFrame(
+                    frame=segments[i][phase_detection.frame_index],
+                    detections=(
+                        seg_detections[i][phase_detection.frame_index] if seg_detections[i] else []
+                    ),
+                )
+            results.append(
+                GoalChunkResult(segment_index=i, goal_result=scored.goal_result, phase_frame=phase_frame)
+            )
         buffer.reported_count = confirmed_count
 
         if is_final:

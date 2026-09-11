@@ -231,7 +231,7 @@ Noise scales as roughly `dt^-0.22` (temporally correlated, not white), so 60fps 
 
 Continuous recording session with automatic per-serve detection (P4) and per-serve analysis. Define a goal catalog; backend returns `goal_result: { passed: bool, spoken_cue: String }` alongside normal cues. Deliver audible pass/fail feedback via `AVSpeechSynthesizer` so the player can stay focused on the court between serves. Mac-hosted; becomes field-portable after the P17 Jetson migration.
 
-### Phase P7a — Set Goal UX Follow-Ons (2D)
+### Phase P7a — Set Goal UX Follow-Ons (2D) ✅
 
 Small, independent fixes and enhancements surfaced during P7's manual real-device testing
 (`phases/2026-08-28-p7-goal-library-set-goal-2d/validation.md` Run Notes), scheduled ahead of

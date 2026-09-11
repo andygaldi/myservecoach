@@ -95,6 +95,10 @@ class PhaseDetection(BaseModel):
 class GoalResult(BaseModel):
     passed: bool
     spoken_cue: str
+    # Always populated — the ServePhase the goal's own rule targets (not always contact). `cue`
+    # is the full firing Cue on a miss (for the failing-joint highlight), None on a pass.
+    phase: ServePhase
+    cue: Cue | None = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -104,9 +108,17 @@ class AnalyzeResponse(BaseModel):
     goal_result: GoalResult | None = None
 
 
+class GoalPhaseFrame(BaseModel):
+    frame: Frame
+    detections: list[Detection] = Field(default_factory=list)
+
+
 class GoalChunkResult(BaseModel):
     segment_index: int
     goal_result: GoalResult
+    # None when the goal's own phase was never detected in this segment — the existing
+    # "frame still shows without a skeleton" tolerance, not an error case.
+    phase_frame: GoalPhaseFrame | None = None
 
 
 class GoalChunkResponse(BaseModel):

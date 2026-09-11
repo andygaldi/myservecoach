@@ -51,4 +51,21 @@ struct PhaseFrameImageExtractorTests {
 
         #expect(result[requested] != nil)
     }
+
+    @Test("an explicit nonzero tolerance still extracts a valid frame")
+    func nonzeroToleranceStillExtractsFrame() async throws {
+        let url = try await TestVideoFixture.make(width: 320, height: 240, frameCount: 60, frameRate: 30)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Set Goal passes a small nonzero tolerance to absorb its backend timestamp's known
+        // drift (requirements.md's "Known timing-precision limitation"), unlike Assessment's
+        // exact-seek (`.zero`) default — this just confirms the explicit-tolerance path works.
+        let requested = 0.5
+        let result = try await PhaseFrameImageExtractor().imageData(
+            at: [requested], from: url, tolerance: CMTime(seconds: 0.15, preferredTimescale: 600)
+        )
+
+        let data = try #require(result[requested])
+        #expect(UIImage(data: data) != nil)
+    }
 }

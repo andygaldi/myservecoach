@@ -23,6 +23,19 @@ struct SetGoalRecordingView: View {
                 .ignoresSafeArea()
 
             VStack {
+                HStack {
+                    Spacer()
+                    Button(action: { viewModel.cameraViewModel.toggleCamera() }) {
+                        Image(systemName: "camera.rotate")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .disabled(viewModel.isRecording)
+                }
+                .padding()
+
                 if viewModel.isRecording {
                     tallyHeader
                 }
@@ -95,7 +108,13 @@ struct SetGoalRecordingView: View {
         NavigationStack {
             List(viewModel.attempts) { attempt in
                 GoalAttemptRowView(
-                    segmentIndex: attempt.segmentIndex, passed: attempt.passed, spokenCue: attempt.spokenCue
+                    segmentIndex: attempt.segmentIndex,
+                    passed: attempt.passed,
+                    spokenCue: attempt.spokenCue,
+                    stillImage: attempt.stillImage,
+                    poseFrame: attempt.phaseFrame?.frame,
+                    detections: attempt.phaseFrame?.detections ?? [],
+                    highlightedCue: attempt.cue
                 )
             }
             .navigationTitle("Session Summary")
@@ -103,6 +122,12 @@ struct SetGoalRecordingView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         viewModel.persist(to: modelContext)
+                        onDone()
+                    }
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Discard") {
+                        viewModel.discard()
                         onDone()
                     }
                 }

@@ -1,6 +1,7 @@
 from app.models import AnalyzeResponse, Detection, Frame, GoalResult, PhaseDetection, ServePhase
+from app.engine.goal_cues import directional_spoken_cue
 from app.engine.phases import detect_phases
-from app.engine.rules import RULE_IDS, evaluate_rules
+from app.engine.rules import RULE_IDS, RULES_BY_ID, evaluate_rules
 
 _GOAL_PASS_MESSAGE = "Nice serve — goal met!"
 _CLEAN_SERVE_SUMMARY = "No major issues detected — good serve!"
@@ -53,9 +54,20 @@ def score_segment(
     goal_result = None
     if goal_rule_id is not None:
         firing = next((c for c in cues if c.rule_id == goal_rule_id), None)
+        goal_rule = RULES_BY_ID[goal_rule_id]
+        if firing is None:
+            spoken_cue = _GOAL_PASS_MESSAGE
+        elif firing.measured_value is not None:
+            spoken_cue = directional_spoken_cue(
+                goal_rule, firing.measured_value, phase_frames.get(goal_rule.phase)
+            )
+        else:
+            spoken_cue = firing.message
         goal_result = GoalResult(
             passed=firing is None,
-            spoken_cue=firing.message if firing else _GOAL_PASS_MESSAGE,
+            spoken_cue=spoken_cue,
+            phase=goal_rule.phase,
+            cue=firing,
         )
 
     return AnalyzeResponse(cues=cues, summary=summary, phases=phases, goal_result=goal_result)

@@ -220,7 +220,13 @@ final class CameraService: NSObject, CameraServiceProtocol {
     }
 
     private func _updateMirroring(for position: AVCaptureDevice.Position) {
+        // Only the preview connection mirrors for a natural selfie view. movieOutput's connection
+        // must never mirror: it's the recorded/uploaded file, and a mirrored frame breaks the
+        // backend's real-orientation assumptions (HANDEDNESS's "right" hitting wrist, phases.py)
+        // for front-camera Set Goal sessions — the wrong/flickering wrist gets tracked, producing
+        // spurious serve peaks on idle motion.
         for connection in session.connections where connection.isVideoMirroringSupported {
+            guard connection.output !== movieOutput else { continue }
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = (position == .front)
         }

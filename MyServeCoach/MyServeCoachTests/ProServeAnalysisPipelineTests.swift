@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Testing
 @testable import MyServeCoach
@@ -48,7 +49,7 @@ struct ProServeAnalysisPipelineTests {
         var error: Error?
         var missingTimestamps: Set<Double> = []
 
-        func imageData(at seconds: [Double], from videoURL: URL) async throws -> [Double: Data] {
+        func imageData(at seconds: [Double], from videoURL: URL, tolerance: CMTime) async throws -> [Double: Data] {
             if let error { throw error }
             // Tolerates a repeated timestamp the way the real extractor does — it keys results by
             // requested time, so asking twice is harmless rather than fatal.
