@@ -64,35 +64,49 @@ another within this phase.
 - Show one still frame with pose skeleton overlaid per serve on `GoalSessionHistoryDetailView`
   (currently pass/fail text only, `GoalSessionHistoryDetailView.swift`), matching Assessment's
   treatment (`PhaseFrameOverlayView.swift:8-15`, reused as-is — no changes to that view). "Matching
-  the treatment" means the same skeleton-drawn-over-a-still-frame rendering; `PhaseFrameOverlayView`
-  is called with `highlightedCue: nil` (skeleton only, no failing-joint highlight/ideal-indicator
-  overlay) — that overlay's `Cue`-driven highlight geometry is a separate, heavier feature Assessment
-  built for its multi-cue deviation-caption UI, which the roadmap's one-line item doesn't ask for.
+  the treatment" means the same skeleton-drawn-over-a-still-frame rendering, **including**
+  Assessment's failing-joint highlight — see the highlight bullet below.
 - **Single frame per serve** (roadmap: "a still frame... per serve", singular) — not Assessment's
-  four-phase treatment. Contact frame, since it's the single most diagnostic moment for a pass/
-  fail drill and is already the moment `goal_session.py`'s scoring keys off for most rules.
+  four-phase treatment. **Frame phase matches the active goal's own phase, not always contact.**
+  Each `rules.json` rule already declares which `ServePhase` it evaluates (`_Rule.phase`,
+  `backend/app/engine/rules.py:23`) — e.g. a toss-related goal (`view`/metric keyed to the toss
+  phase) shows the toss-phase frame, a trophy-pose goal shows the trophy-pose frame, a contact
+  goal shows the contact frame, etc. Since a Set Goal session evaluates exactly one
+  `goal_rule_id` for its whole duration, this is still a single, well-defined frame per serve —
+  just keyed off that rule's `phase` field instead of hardcoding `ServePhase.contact`.
+- **Failing-joint highlight**: `PhaseFrameOverlayView` is called with the real firing `Cue` as
+  `highlightedCue` when the serve fails the goal (reusing Assessment's existing highlight geometry
+  — `Cue.joints`/`measured_value`/`comparison`/`threshold*` already carry everything
+  `PhaseFrameOverlayView` needs, no new drawing logic required), and `highlightedCue: nil` (skeleton
+  only) when the serve passes, since there's no failing joint to highlight on a pass. This means
+  the backend must return the firing `Cue` itself (not just pass/fail + `spoken_cue`) alongside the
+  phase frame's keypoints/detections — see the keypoints bullet below.
 - **Extraction: iOS, post-finalize** — mirrors Assessment's own approach
   (`ProServeAnalysisPipeline.swift:75-87`'s `PhaseFrameImageExtractor`, extracting stills
-  client-side from the fully assembled local video). No backend changes. Concretely: after
+  client-side from the fully assembled local video). No backend image work. Concretely: after
   `ChunkVideoConcatenator.concatenate` produces the session's single video
-  (`SetGoalSessionViewModel.swift` `finalizeVideo()`), extract the contact-phase still frame for
-  each confirmed segment from that assembled video.
-- **Keypoints**: the backend already computes per-chunk `Frame`/`Detection` data for scoring
+  (`SetGoalSessionViewModel.swift` `finalizeVideo()`), extract the goal-phase still frame for
+  each confirmed segment from that assembled video, at the timestamp the backend reports for that
+  phase (see below).
+- **Keypoints + cue**: the backend already computes per-chunk `Frame`/`Detection` data for scoring
   (`goal_session.py:69-71`) but discards it on `is_final=true` (`goal_session.py:93-94`) and never
-  returns it to iOS. Extending `GoalChunkResult` to include the contact frame's keypoints/
-  detections (backend-computed, not re-derived client-side — iOS has no pose model) is in scope;
-  this is additive to the existing chunk response and happens on the same request/response the
-  session already makes, **not** a new round trip. This does not touch Check C's critical path:
-  per the pre-research finding, Check C times contact→spoken-cue during live recording, before
-  `stopSession()`/`finalizeVideo()`; the additional response payload (one small JSON object per
-  newly-confirmed segment — comparable in size to the existing `cues` on `/v1/analyze`) adds
-  negligible per-chunk transfer/encode time, well within the existing latency budget's margin
-  (`latency-findings.md`'s ~2.4–4.4s budget vs. the measured ~4s actual). No frame **image** is
-  sent from the backend — only keypoints/detections (small JSON), keeping payload size in the
-  same class as today's response.
+  returns it to iOS; `score_segment` also already evaluates every rule's cue internally
+  (`scoring.py`'s `cues` list) — the goal rule's own cue (fired or not) is already computed, not
+  new work. Extending `GoalChunkResult` to include the goal-phase frame's keypoints/detections
+  (backend-computed, not re-derived client-side — iOS has no pose model) plus the firing `Cue`
+  (`None` on a pass) is in scope; this is additive to the existing chunk response and happens on
+  the same request/response the session already makes, **not** a new round trip. This does not
+  touch Check C's critical path: per the pre-research finding, Check C times contact→spoken-cue
+  during live recording, before `stopSession()`/`finalizeVideo()`; the additional response payload
+  (one small JSON object per newly-confirmed segment — comparable in size to the existing `cues`
+  on `/v1/analyze`) adds negligible per-chunk transfer/encode time, well within the existing
+  latency budget's margin (`latency-findings.md`'s ~2.4–4.4s budget vs. the measured ~4s actual).
+  No frame **image** is sent from the backend — only keypoints/detections/cue (small JSON), keeping
+  payload size in the same class as today's response.
 - **New SwiftData model**: `GoalPhaseFrameRecord` (Set Goal's equivalent of `PhaseFrameRecord`,
   `PhaseFrameRecord.swift:10-20`) storing `frameImageData` (extracted client-side),
-  `keypointsJSON`/`detectionsJSON` (from the backend response), keyed per `GoalAttemptRecord`.
+  `keypointsJSON`/`detectionsJSON`/`cueJSON` (from the backend response, `cueJSON` empty/absent on
+  a pass), keyed per `GoalAttemptRecord`.
 - **Known timing-precision limitation, inherited from P7**: the backend's buffer timestamps
   (`goal_session_buffer.append_chunk`) are computed from an assumed-fps approximation of each
   chunk's duration (`_CHUNK_FPS`, `len(sampled) * stride / _CHUNK_FPS`), not each chunk's actual
@@ -148,9 +162,10 @@ another within this phase.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Skeleton overlay frame count | Single contact frame per serve | User confirmed; matches roadmap's singular "a still frame... per serve" wording; simpler than Assessment's 4-phase parity, which wasn't requested. |
+| Skeleton overlay frame count | Single frame per serve, at the active goal's own `ServePhase` | User confirmed both the single-frame count (matches roadmap's singular "a still frame... per serve" wording) and that the phase must match the goal, not be hardcoded to contact — e.g. a toss goal shows the toss frame. Each rule already declares its `phase` (`_Rule.phase`), so this is a lookup, not new calibration. |
 | Skeleton overlay extraction owner | iOS, client-side, post-finalize | User confirmed; mirrors Assessment's existing `PhaseFrameImageExtractor` pattern; keeps zero cost on Check C's critical path (extraction happens after `stopSession()`, after every spoken cue for the session has already fired) and requires no new backend round trip. |
 | Skeleton overlay keypoint source | Backend-computed, riding the existing chunk response (not a new endpoint) | Backend already computes per-chunk pose/detections for scoring (`goal_session.py:69-71`); returning them alongside the existing `GoalResult` on the same request avoids re-deriving pose on-device (iOS has no pose model) without adding a new round trip. |
+| Failing-joint highlight | Included — pass the firing `Cue` as `highlightedCue` on a miss, `nil` on a pass | User confirmed. `Cue` already carries the joints/measured-value/threshold data `PhaseFrameOverlayView`'s highlight geometry needs (built for Assessment), and `score_segment` already evaluates the goal rule's cue every chunk — no new computation, just returning what already exists. |
 | Skeleton overlay frame-extraction tolerance | ~±0.15s (not Assessment's exact ±0s) | Backend buffer timestamps are an assumed-fps approximation of chunk duration, and P7 already accepted a small real-time gap at each chunk boundary; both drift the backend's contact-frame timestamp away from its true position in the concatenated video as sessions get longer. A small tolerance absorbs this for a display-only overlay rather than risking a silently-missing frame. |
 | Latency re-verification | Mandatory real-device Check C re-run (median ≤5s/max ≤8s) post-implementation | The pre-research question that motivated speccing this item first — a design argument alone doesn't close it; only a measured re-run does. |
 | Spoken cue directionality | Derive from existing rule comparison direction (gte/lte/range) in backend code; `rules.json` unchanged | User confirmed; reuses calibrated thresholds as-is, no new calibration surface, no risk of hand-authored variant messages drifting from the actual threshold logic. |

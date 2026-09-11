@@ -32,36 +32,37 @@ the mandatory Check C re-run (row 12) meets P7's original bar on a real device.
 not a hard requirement, provided rows 5–6 pass and the fix is a real root-cause fix (not a
 targeted patch for only the back-arrow repro, per requirements.md's explicit instruction).*
 
-### Group 4 — Backend Contact-Frame Data
+### Group 4 — Backend Goal-Phase Frame + Firing Cue
 
 | # | Check | How to verify |
 |---|-------|----------------|
-| 8 | `GoalChunkResult.contact_frame` populated when a contact phase is detected, `None` otherwise | `test_goal_session_endpoint.py` new cases from plan.md step 15 pass. |
-| 9 | Existing chunk-response fields (`goal_result`, etc.) unchanged for callers ignoring the new field | Existing `test_goal_session_endpoint.py` assertions still pass unmodified — additive-only change. |
+| 8 | `GoalChunkResult.phase_frame` populated when a frame at the goal's own phase is detected, `None` otherwise; `GoalResult.phase` always populated; `GoalResult.cue` present on a miss, `None` on a pass | `test_goal_session_endpoint.py` new cases from plan.md step 17 pass — including a case where the goal targets a **non-contact** phase (e.g. `trophy_pose`), proving the frame follows the goal's phase rather than being hardcoded to contact. |
+| 9 | Existing chunk-response fields (`goal_result.passed`/`spoken_cue`, etc.) unchanged for callers ignoring the new fields | Existing `test_goal_session_endpoint.py` assertions still pass unmodified — additive-only change. |
 
-### Group 5 — iOS Skeleton Overlay
+### Group 5 — iOS Skeleton Overlay + Failing-Joint Highlight
 
 | # | Check | How to verify |
 |---|-------|----------------|
-| 10 | Contact-frame still image + skeleton persisted per attempt via `GoalPhaseFrameRecord` | `SetGoalSessionViewModelTests` new cases (plan.md step 29) pass — `finalizeVideo()` populates `stillImage`, `persist(to:)` attaches `GoalPhaseFrameRecord`. |
-| 11 | Overlay renders on both the live results sheet and saved history detail view; degrades gracefully (no crash, pass/fail-only fallback) when no contact frame exists | `GoalSessionHistoryDetailViewTests` snapshot/ViewInspector cases (plan.md step 29) pass — **required for merge**, not best-effort, matching Assessment's own overlay test coverage precedent. Real device: confirm visually on both screens, including a serve with no detected contact phase. |
+| 10 | Goal-phase still image + skeleton + cue persisted per attempt via `GoalPhaseFrameRecord` | `SetGoalSessionViewModelTests` new cases (plan.md step 31) pass — `finalizeVideo()` populates `stillImage`, `persist(to:)` attaches `GoalPhaseFrameRecord` with `cueJSON` set on a miss and nil on a pass. |
+| 11 | Overlay renders on both the live results sheet and saved history detail view, with the failing-joint highlight visible on a missed serve and skeleton-only on a passed serve; degrades gracefully (no crash, pass/fail-only fallback) when no phase frame exists | `GoalSessionHistoryDetailViewTests` snapshot/ViewInspector cases (plan.md step 31) pass — **required for merge**, not best-effort, matching Assessment's own overlay test coverage precedent. Real device: confirm visually on both screens, including a passed serve (no highlight), a missed serve (highlight present), and a serve with no detected phase frame. |
 | 12 | **Mandatory — Check C re-run: contact→spoken-cue latency unaffected by this phase** | Real device, same config as P7's baseline (`fused/mps`). Record a fresh multi-serve Set Goal session, measure wall-clock contact→spoken-cue latency the same way P7 measured it. **Bar: median ≤5s, max ≤8s** (P7 baseline ~4s). Record the measured numbers in this file's Run Notes. **This is a hard merge blocker** — if the bar isn't met, Group 5's extraction/persistence design must be revisited (e.g., confirm no accidental synchronous work landed on the per-chunk path) before merge, not just noted as a known issue. |
-| 13 | `PhaseFrameImageExtractor`'s new `tolerance` parameter defaults to `.zero`, preserving Assessment's existing exact-seek behavior | `PhaseFrameImageExtractorTests` regression case (plan.md step 29) — Assessment's existing exact-seek tests still pass unmodified. |
+| 13 | `PhaseFrameImageExtractor`'s new `tolerance` parameter defaults to `.zero`, preserving Assessment's existing exact-seek behavior | `PhaseFrameImageExtractorTests` regression case (plan.md step 31) — Assessment's existing exact-seek tests still pass unmodified. |
+| 14 | Frame shown matches the goal's own phase, not always contact | Real device: set a goal whose rule targets a non-contact phase (e.g. a trophy-pose rule), confirm the history detail view shows the trophy-pose frame for that session, not a contact frame. |
 
 ### Group 6 — Directional Spoken Cues
 
 | # | Check | How to verify |
 |---|-------|----------------|
-| 14 | `directional_spoken_cue` returns correct low/high phrase per rule comparison type (`gte`/`lte`/`range`, both range directions), falls back to `rule.message` when no phrase is defined | `test_goal_cues.py` (or `test_scoring.py`) new cases from plan.md step 33 pass. |
-| 15 | `GoalResult.spoken_cue` uses directional phrasing on a miss; `Cue.message`/Assessment's `AnalyzeResponse.cues` unaffected | `test_scoring.py`/`test_analyze.py` updated case (plan.md step 34) — Set Goal path changed, Assessment path unchanged. |
-| 16 | Directional cues audible in a live session | Real device: force a goal miss on a rule with a defined directional phrase (e.g., trophy elbow-line), confirm the spoken cue uses the more specific phrasing. |
+| 15 | `directional_spoken_cue` returns correct low/high phrase per rule comparison type (`gte`/`lte`/`range`, both range directions), falls back to `rule.message` when no phrase is defined | `test_goal_cues.py` (or `test_scoring.py`) new cases from plan.md step 35 pass. |
+| 16 | `GoalResult.spoken_cue` uses directional phrasing on a miss; `Cue.message`/Assessment's `AnalyzeResponse.cues` unaffected | `test_scoring.py`/`test_analyze.py` updated case (plan.md step 36) — Set Goal path changed, Assessment path unchanged. |
+| 17 | Directional cues audible in a live session | Real device: force a goal miss on a rule with a defined directional phrase (e.g., trophy elbow-line), confirm the spoken cue uses the more specific phrasing. |
 
 ### Cross-Cutting
 
 | # | Check | How to verify |
 |---|-------|----------------|
-| 17 | No changes outside this phase's scope | `git diff --name-only develop...HEAD` — confirm `PhaseReviewView.swift`, Lite pipeline/segmentation service files, and `ContentView.swift` do not appear. |
-| 18 | Full automated suite green | `scripts/verify.sh backend` and `scripts/verify.sh ios` both pass. |
+| 18 | No changes outside this phase's scope | `git diff --name-only develop...HEAD` — confirm `PhaseReviewView.swift`, Lite pipeline/segmentation service files, and `ContentView.swift` do not appear. |
+| 19 | Full automated suite green | `scripts/verify.sh backend` and `scripts/verify.sh ios` both pass. |
 
 ## Merge Criteria
 
@@ -71,7 +72,8 @@ targeted patch for only the back-arrow repro, per requirements.md's explicit ins
   P7's ~4s baseline. A design argument that the overlay work is off the critical path does not
   satisfy this row; only a measured re-run does.
 - Row 11's snapshot/ViewInspector coverage for the new overlay views is required, not optional,
-  matching the coverage precedent already established for Assessment's equivalent views.
+  matching the coverage precedent already established for Assessment's equivalent views, and must
+  cover both the failing-joint-highlight and skeleton-only rendering paths.
 - Group 3's fix is verified by the two outcome-based repro checks (rows 5–6), not by matching a
   predetermined fix mechanism.
 
