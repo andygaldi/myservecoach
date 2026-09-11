@@ -4,7 +4,8 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.models import AnalyzeResponse, Frame, ServePhase
 from app.engine.phases import detect_phases
-from app.engine.rules import _Rule
+from app.engine.goal_cues import directional_spoken_cue
+from app.engine.rules import _Rule, RULES_BY_ID
 import app.engine.rules as rules_module
 
 VALID_FRAME = {
@@ -356,7 +357,9 @@ async def test_goal_rule_id_matching_firing_rule_returns_failed_goal_result(tran
     firing_cue = next(c for c in body.cues if c.rule_id == "trophy_hitting_elbow_shoulder_line")
     assert body.goal_result is not None
     assert body.goal_result.passed is False
-    assert body.goal_result.spoken_cue == firing_cue.message
+    rule = RULES_BY_ID["trophy_hitting_elbow_shoulder_line"]
+    assert body.goal_result.spoken_cue == directional_spoken_cue(rule, firing_cue.measured_value)
+    assert body.goal_result.spoken_cue != firing_cue.message
 
 
 @pytest.mark.asyncio

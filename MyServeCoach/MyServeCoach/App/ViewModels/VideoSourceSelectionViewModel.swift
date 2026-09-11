@@ -33,10 +33,22 @@ final class VideoSourceSelectionViewModel {
     // UserDefaults-backed directly instead; persists the last-selected mode across sessions.
     // `defaults` is injectable (default `.standard`) so tests can use an isolated suite rather
     // than racing on the shared standard domain.
+    //
+    // `selectedMode` must be a plain stored property (not a hand-written computed get/set) so
+    // the @Observable macro instruments its reads/writes with observation tracking — a fully
+    // custom computed property is left untouched by the macro and is invisible to SwiftUI's
+    // view-invalidation system on both reads and writes, which was the root cause of the
+    // toggle-visibility staleness bug (see phases/2026-09-11-p7a-set-goal-ux-follow-ons/
+    // validation.md Run Notes). UserDefaults sync happens only on write (and once at init to
+    // restore the last-persisted value), not on every read.
     private static let modeDefaultsKey = "com.myservecoach.sessionMode"
+    private var _selectedMode: SessionMode
     var selectedMode: SessionMode {
-        get { SessionMode(rawValue: defaults.string(forKey: Self.modeDefaultsKey) ?? "") ?? .lite }
-        set { defaults.set(newValue.rawValue, forKey: Self.modeDefaultsKey) }
+        get { _selectedMode }
+        set {
+            _selectedMode = newValue
+            defaults.set(newValue.rawValue, forKey: Self.modeDefaultsKey)
+        }
     }
 
     private let exporter = LibraryVideoExporter()
@@ -62,6 +74,7 @@ final class VideoSourceSelectionViewModel {
         self.reencoder = reencoder
         self.permissionChecker = permissionChecker
         self.defaults = defaults
+        self._selectedMode = SessionMode(rawValue: defaults.string(forKey: Self.modeDefaultsKey) ?? "") ?? .lite
     }
 
     func handleLibraryButtonTap() async {

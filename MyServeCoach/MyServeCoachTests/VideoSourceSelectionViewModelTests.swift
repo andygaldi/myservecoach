@@ -209,6 +209,34 @@ struct VideoSourceSelectionViewModelTests {
         #expect(vm2.selectedMode == .pro2D)
     }
 
+    @Test("setting selectedMode fires an observable change notification")
+    func selectedModeChangeIsObservationTracked() {
+        let vm = makeVM()
+        var observedChange = false
+        withObservationTracking {
+            _ = vm.selectedMode
+        } onChange: {
+            observedChange = true
+        }
+
+        vm.selectedMode = .pro2D
+
+        #expect(observedChange == true)
+    }
+
+    @Test("selectedWorkflow visibility gate (selectedMode == .pro2D) reflects selectedMode immediately after each direction of change")
+    func selectedModeGatesWorkflowVisibilityImmediately() {
+        let vm = makeVM()
+        #expect(vm.selectedMode == .lite)
+        #expect((vm.selectedMode == .pro2D) == false)
+
+        vm.selectedMode = .pro2D
+        #expect((vm.selectedMode == .pro2D) == true)
+
+        vm.selectedMode = .lite
+        #expect((vm.selectedMode == .pro2D) == false)
+    }
+
     @Test("Pro 2D mode routes runPipeline to the Pro pipeline, never the Lite coordinator")
     func proModeRoutesToProPipelineNotLiteCoordinator() async {
         let liteMock = MockPipeline(segments: [makeFrames()])

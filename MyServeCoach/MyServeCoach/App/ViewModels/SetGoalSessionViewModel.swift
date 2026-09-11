@@ -1,6 +1,8 @@
+import AVFoundation
 import Foundation
 import Observation
 import SwiftData
+import UIKit
 
 @MainActor
 @Observable
@@ -17,6 +19,7 @@ final class SetGoalSessionViewModel {
     private let goalSessionService: any GoalSessionServicing
     private let spokenFeedback: any SpokenFeedbackServicing
     private let concatenator: any ChunkVideoConcatenating
+    private let imageProvider: any PhaseFrameImageProviding
     private var chunkURLs: [URL] = []
 
     init(
@@ -24,13 +27,15 @@ final class SetGoalSessionViewModel {
         cameraViewModel: CameraViewModel = CameraViewModel(sessionMode: .pro2D),
         goalSessionService: any GoalSessionServicing = LiveGoalSessionService(),
         spokenFeedback: any SpokenFeedbackServicing = SpokenFeedbackService(),
-        concatenator: any ChunkVideoConcatenating = ChunkVideoConcatenator()
+        concatenator: any ChunkVideoConcatenating = ChunkVideoConcatenator(),
+        imageProvider: any PhaseFrameImageProviding = PhaseFrameImageExtractor()
     ) {
         self.goal = goal
         self.cameraViewModel = cameraViewModel
         self.goalSessionService = goalSessionService
         self.spokenFeedback = spokenFeedback
         self.concatenator = concatenator
+        self.imageProvider = imageProvider
     }
 
     var passCount: Int { attempts.filter(\.passed).count }
@@ -85,7 +90,9 @@ final class SetGoalSessionViewModel {
                     let display = GoalAttemptDisplay(
                         segmentIndex: result.segmentIndex,
                         passed: result.goalResult.passed,
-                        spokenCue: result.goalResult.spokenCue
+                        spokenCue: result.goalResult.spokenCue,
+                        phaseFrame: result.phaseFrame,
+                        cue: result.goalResult.cue
                     )
                     attempts.append(display)
                     spokenFeedback.speak(display.spokenCue)
@@ -107,12 +114,55 @@ final class SetGoalSessionViewModel {
             cameraViewModel.recordingState = .idle
         }
         videoURL = try? await concatenator.concatenate(chunkURLs: chunkURLs)
+        guard let videoURL else { return }
+
+        let timestamps = attempts.compactMap(\.phaseFrame?.frame.timestamp)
+        guard !timestamps.isEmpty else { return }
+        // Set Goal tolerance absorbs the backend's own timestamp drift (see
+        // PhaseFrameImageProviding's doc comment) — Assessment stays exact-seek (`.zero`).
+        let tolerance = CMTime(seconds: 0.15, preferredTimescale: 600)
+        guard let stills = try? await imageProvider.imageData(at: timestamps, from: videoURL, tolerance: tolerance)
+        else { return }
+
+        for index in attempts.indices {
+            guard let timestamp = attempts[index].phaseFrame?.frame.timestamp,
+                  let data = stills[timestamp] else { continue }
+            attempts[index].stillImage = UIImage(data: data)
+        }
+    }
+
+    func discard() {
+        if let videoURL {
+            try? FileManager.default.removeItem(at: videoURL)
+        }
+        for url in chunkURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     func persist(to context: ModelContext) {
+        let encoder = JSONEncoder()
         let session = GoalSession(goalRuleId: goal.ruleId, goalDisplayName: goal.displayName, videoURL: videoURL)
-        session.attempts = attempts.map {
-            GoalAttemptRecord(segmentIndex: $0.segmentIndex, passed: $0.passed, spokenCue: $0.spokenCue)
+        session.attempts = attempts.map { attempt in
+            let record = GoalAttemptRecord(
+                segmentIndex: attempt.segmentIndex, passed: attempt.passed, spokenCue: attempt.spokenCue
+            )
+            // A missing phaseFrame/stillImage (never extracted, or extraction failed) just costs
+            // the overlay, not the attempt itself — the pass/fail row still persists above.
+            if let phaseFrame = attempt.phaseFrame, let stillImage = attempt.stillImage,
+               let keypointsJSON = try? encoder.encode(phaseFrame.frame),
+               let detectionsJSON = try? encoder.encode(phaseFrame.detections),
+               let frameImageData = PhaseFrameImageEncoder.encode(stillImage) {
+                let cueJSON = attempt.cue.flatMap { try? encoder.encode($0) }
+                record.phaseFrame = GoalPhaseFrameRecord(
+                    frameTimestamp: phaseFrame.frame.timestamp,
+                    frameImageData: frameImageData,
+                    keypointsJSON: keypointsJSON,
+                    detectionsJSON: detectionsJSON,
+                    cueJSON: cueJSON
+                )
+            }
+            return record
         }
         context.insert(session)
     }

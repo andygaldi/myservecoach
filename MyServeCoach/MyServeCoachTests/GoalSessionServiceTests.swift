@@ -24,7 +24,7 @@ struct GoalSessionServiceTests {
             statusCode: 200,
             data: Data("""
             { "results": [
-                { "segment_index": 0, "goal_result": { "passed": false, "spoken_cue": "Keep your arm straighter" } }
+                { "segment_index": 0, "goal_result": { "passed": false, "spoken_cue": "Keep your arm straighter", "phase": "trophy_pose" } }
             ] }
             """.utf8)
         ))

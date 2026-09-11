@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Minimal read-only replay of a persisted Set Goal session — no aggregate stats section, no
-/// skeleton overlay: Set Goal never had phase-frame imagery to show, unlike Assessment.
+/// Minimal read-only replay of a persisted Set Goal session — no aggregate stats section, but
+/// does show the skeleton overlay + failing-joint highlight when the attempt has a persisted
+/// `GoalPhaseFrameRecord` (older sessions saved before this existed simply have none).
 struct GoalSessionHistoryDetailView: View {
     let session: GoalSession
 
@@ -26,8 +27,15 @@ struct GoalSessionHistoryDetailView: View {
         .padding([.horizontal, .top])
 
         List(sortedAttempts, id: \.id) { attempt in
+            let display = PersistedGoalAttemptDisplay(attempt)
             GoalAttemptRowView(
-                segmentIndex: attempt.segmentIndex, passed: attempt.passed, spokenCue: attempt.spokenCue
+                segmentIndex: display.segmentIndex,
+                passed: display.passed,
+                spokenCue: display.spokenCue,
+                stillImage: display.stillImage,
+                poseFrame: display.poseFrame,
+                detections: display.detections,
+                highlightedCue: display.highlightedCue
             )
         }
         .navigationTitle("Set Goal Session")

@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 @testable import MyServeCoach
 
@@ -41,6 +42,22 @@ final class MockChunkVideoConcatenator: ChunkVideoConcatenating, @unchecked Send
         concatenateCallCount += 1
         lastChunkURLs = chunkURLs
         return resultURL
+    }
+}
+
+final class MockPhaseFrameImageProvider: PhaseFrameImageProviding, @unchecked Sendable {
+    private(set) var lastRequestedSeconds: [Double]?
+    private(set) var lastTolerance: CMTime?
+    /// Keyed by timestamp; a timestamp absent here is dropped from the result, same as a
+    /// real extraction failure.
+    var dataBySeconds: [Double: Data] = [:]
+
+    func imageData(at seconds: [Double], from videoURL: URL, tolerance: CMTime) async throws -> [Double: Data] {
+        lastRequestedSeconds = seconds
+        lastTolerance = tolerance
+        return seconds.reduce(into: [:]) { result, second in
+            if let data = dataBySeconds[second] { result[second] = data }
+        }
     }
 }
 

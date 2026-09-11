@@ -44,7 +44,6 @@ struct AssessmentHistoryPresenter {
     private static func section(
         for result: ServeResult, cueDisplays: [AssessmentCueDisplay]
     ) -> AssessmentServeSectionDisplay {
-        let decoder = JSONDecoder()
         let cuesByPhase = Dictionary(grouping: cueDisplays, by: \.phase)
 
         let frames = result.phaseFrames
@@ -52,14 +51,17 @@ struct AssessmentHistoryPresenter {
             .compactMap { record -> AssessmentPhaseFrameDisplay? in
                 // No image means nothing to draw on; its cues fall through to `unpairedCues`
                 // below rather than disappearing.
-                guard let image = UIImage(data: record.frameImageData) else { return nil }
+                guard let decoded = PhaseFrameDecoding.decode(
+                    frameImageData: record.frameImageData,
+                    keypointsJSON: record.keypointsJSON,
+                    detectionsJSON: record.detectionsJSON
+                ) else { return nil }
                 return AssessmentPhaseFrameDisplay(
                     id: "\(result.serveIndex)-\(record.phaseKey)",
                     phaseKey: record.phaseKey,
-                    image: image,
-                    // A frame whose keypoints won't decode still shows — without a skeleton.
-                    frame: try? decoder.decode(BackendFrame.self, from: record.keypointsJSON),
-                    detections: (try? decoder.decode([BackendDetection].self, from: record.detectionsJSON)) ?? [],
+                    image: decoded.image,
+                    frame: decoded.frame,
+                    detections: decoded.detections,
                     cues: cuesByPhase[record.phaseKey] ?? []
                 )
             }

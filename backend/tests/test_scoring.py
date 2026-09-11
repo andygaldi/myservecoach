@@ -1,5 +1,7 @@
 import pytest
 
+from app.engine.goal_cues import directional_spoken_cue
+from app.engine.rules import RULES_BY_ID
 from app.engine.scoring import UnknownGoalRuleId, score_segment
 from app.models import Frame, Keypoint
 
@@ -60,7 +62,9 @@ def test_goal_result_failed_when_rule_fires():
     assert result.goal_result is not None
     assert result.goal_result.passed is False
     firing_cue = next(c for c in result.cues if c.rule_id == "trophy_hitting_elbow_shoulder_line")
-    assert result.goal_result.spoken_cue == firing_cue.message
+    rule = RULES_BY_ID["trophy_hitting_elbow_shoulder_line"]
+    assert result.goal_result.spoken_cue == directional_spoken_cue(rule, firing_cue.measured_value)
+    assert result.goal_result.spoken_cue != firing_cue.message
 
 
 def test_goal_result_passed_when_rule_does_not_fire():

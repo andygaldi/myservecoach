@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.models import Frame, GoalChunkResponse, GoalChunkResult
+from app.models import Frame, GoalChunkResponse, GoalChunkResult, GoalPhaseFrame
 from app.engine.phases import MIN_PEAK_SEPARATION_SECONDS, segment_serves_with_peaks, slice_detections_by_segments
 from app.engine.rules import RULE_IDS
 from app.engine.scoring import score_segment
@@ -87,7 +87,20 @@ def goal_session_chunk(  # sync def, not async — see latency note below
         results: list[GoalChunkResult] = []
         for i in range(buffer.reported_count, confirmed_count):
             scored = score_segment(segments[i], seg_detections[i], goal_rule_id=goal_rule_id)
-            results.append(GoalChunkResult(segment_index=i, goal_result=scored.goal_result))
+            phase_detection = next(
+                (p for p in scored.phases if p.phase == scored.goal_result.phase), None
+            )
+            phase_frame = None
+            if phase_detection is not None:
+                phase_frame = GoalPhaseFrame(
+                    frame=segments[i][phase_detection.frame_index],
+                    detections=(
+                        seg_detections[i][phase_detection.frame_index] if seg_detections[i] else []
+                    ),
+                )
+            results.append(
+                GoalChunkResult(segment_index=i, goal_result=scored.goal_result, phase_frame=phase_frame)
+            )
         buffer.reported_count = confirmed_count
 
         if is_final:

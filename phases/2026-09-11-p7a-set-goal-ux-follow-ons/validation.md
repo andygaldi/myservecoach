@@ -81,3 +81,58 @@ targeted patch for only the back-arrow repro, per requirements.md's explicit ins
 
 _(Filled in during `/phase` and `/phase-review` — Check C measured numbers, root cause confirmed
 for Group 3, any deferred follow-ups.)_
+
+### Group 3 root cause (confirmed via source inspection)
+
+`selectedMode` (`VideoSourceSelectionViewModel.swift`) was a fully hand-written computed
+property (explicit `get`/`set`, backed directly by `UserDefaults`) on an `@Observable` class.
+Swift's `@Observable` macro only injects `access(keyPath:)`/`withMutation(keyPath:)` tracking
+calls for property declarations it transforms itself (plain stored `var`s, or ones with
+`willSet`/`didSet`). A property already written as a full computed `get`/`set` is left
+untouched by the macro — its reads never register a dependency with SwiftUI's observation
+registrar, and its writes never fire an invalidation. Every other property on this class is a
+plain stored property and gets this instrumentation automatically; `selectedMode` was the one
+exception.
+
+Effect: `VideoSourceSelectionView`'s body only picks up the current `selectedMode` value when it
+happens to re-render for some other, properly-tracked reason (e.g. `selectedWorkflow` or a
+navigation flag changing) — not when `selectedMode` itself changes. This explains both roadmap
+repros as the same bug: the toggle's visibility condition (`selectedMode == .pro2D`) reads a
+value that isn't wired into observation at all, so it goes stale until an unrelated re-render
+happens to refresh it. A patch scoped to only the back-arrow repro would not have addressed the
+Lite-mode symptom (or any other path that hits the same untracked read).
+
+Fix: replaced the hand-rolled computed property with a real `@ObservationIgnored`-free stored
+property (`_selectedMode`, tracked by the macro) plus a computed `selectedMode` wrapper whose
+setter both updates the tracked stored value and mirrors it to `UserDefaults` as a side effect;
+the getter reads the tracked stored value directly (no longer round-tripping through
+`UserDefaults` on every read). `UserDefaults` is now only touched on write and at `init` (to
+restore the last-persisted value), not on every read.
+
+### Automated verification (2026-09-11)
+
+- `scripts/verify.sh backend`: 241 passed, 3 skipped — green.
+- `scripts/verify.sh ios` (raw `xcodebuild test`, iPhone 17 Pro / iOS 26.4): **TEST SUCCEEDED** — green.
+- `git diff --name-only develop...HEAD` (working tree): only files under `MyServeCoach/MyServeCoach/App/**`, `MyServeCoach/MyServeCoachTests/**`, `backend/app/**`, `backend/tests/**`, and this phase's own `phases/2026-09-11-p7a-set-goal-ux-follow-ons/` docs. `PhaseReviewView.swift`, the Lite pipeline/segmentation service files, and `ContentView.swift` do not appear — row 18 confirmed.
+- Rows 1–17 requiring a real device (1, 2, 4, 5, 6, 11's visual half, 12, 14, 17) are **not yet exercised** — they need physical-device hands-on verification before merge, most critically **row 12's Check C latency re-run, a hard merge blocker**. Numbers to be filled in here once run.
+
+### Phase-review findings (2026-09-11) — fixed
+
+- **Backend**: `directional_spoken_cue`'s `_DIRECTION_PHRASES` gained test coverage for the two
+  previously-untested range rules (`trophy_hitting_elbow_shoulder_line`,
+  `contact_shoulders_stacked`); table type narrowed to `str | tuple[str, str]` so single-direction
+  (`gte`/`lte`) rules no longer carry a duplicate identical phrase in both tuple slots.
+- **iOS**: `discardRemovesFilesAndDoesNotPersist`'s vacuous non-persistence assertion (checked an
+  unrelated fresh `ModelContext`, not one `discard()` could ever touch — `discard()` takes no
+  `ModelContext` parameter) removed; renamed to `discardRemovesFiles`/reflects what it actually
+  tests. Non-persistence remains a caller-side contract verified by the manual device pass (row 4).
+  `GoalResult.init`'s `phase` parameter lost its test-only `"contact"` default (all call sites now
+  pass it explicitly). Extracted shared `PhaseFrameDecoding` helper, deduplicating the
+  image/keypoints/detections decode between `AssessmentHistoryPresenter` and the renamed
+  `PersistedGoalAttemptDisplay` (was `GoalAttemptRowDisplay` — renamed to disambiguate from the
+  live-session `GoalAttemptDisplay`, and marked `@MainActor` to match the precedent it mirrors).
+  `GoalPhaseFrameRecord.cueJSON`'s departure from Assessment's typed `CueRecord` pattern now has an
+  explanatory comment (no aggregation/query need here, unlike Assessment's major/minor counts).
+- **Left as documented, not fixed**: the two untested-rule findings above are pinning tests for
+  already-implemented behavior, not new calibration — sign correctness still rests on validation.md
+  row 17's manual real-device listen, per the original phase-review note.
