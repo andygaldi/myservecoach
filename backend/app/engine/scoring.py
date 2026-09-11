@@ -58,7 +58,9 @@ def score_segment(
         if firing is None:
             spoken_cue = _GOAL_PASS_MESSAGE
         elif firing.measured_value is not None:
-            spoken_cue = directional_spoken_cue(goal_rule, firing.measured_value)
+            spoken_cue = directional_spoken_cue(
+                goal_rule, firing.measured_value, phase_frames.get(goal_rule.phase)
+            )
         else:
             spoken_cue = firing.message
         goal_result = GoalResult(

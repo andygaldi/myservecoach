@@ -11,7 +11,7 @@ from app.routers.segment import DEFAULT_STRIDE
 from app.services import goal_session_buffer
 from app.services.object_detection import ObjectDetectionModel, get_object_detection_model
 from app.services.pose_model import RTMPoseModel, get_pose_model
-from app.services.video_sampler import sample_video_frames
+from app.services.video_sampler import sample_video_frames, video_duration_seconds
 
 router = APIRouter()
 
@@ -61,6 +61,7 @@ def goal_session_chunk(  # sync def, not async — see latency note below
     try:
         try:
             sampled = sample_video_frames(tmp_path, stride)
+            chunk_duration = video_duration_seconds(tmp_path)
         except ValueError:
             raise HTTPException(400, "could not open video")
 
@@ -70,7 +71,7 @@ def goal_session_chunk(  # sync def, not async — see latency note below
             keypoints = pose_model.infer(img, person_bbox=person_bbox)
             chunk_triples.append((ts, Frame(timestamp=ts, keypoints=keypoints), detections))
 
-        buffer = goal_session_buffer.append_chunk(session_id, stride, chunk_triples)
+        buffer = goal_session_buffer.append_chunk(session_id, chunk_duration, chunk_triples)
 
         segments_with_peaks = segment_serves_with_peaks(buffer.frames)
         segments = [segment for segment, _ in segments_with_peaks]

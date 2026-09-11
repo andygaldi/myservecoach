@@ -51,7 +51,13 @@ final class ChunkVideoConcatenator: ChunkVideoConcatenating {
             cursor = CMTimeAdd(cursor, duration)
         }
 
-        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+        // Passthrough (stream-copy, no re-encode), not HighestQuality: every chunk in a session
+        // shares identical locked capture settings (camera can't change mid-recording), so a
+        // direct copy is always valid here — and it sidesteps HighestQuality's encoder choking on
+        // minor inter-chunk audio format variance (e.g. a short first chunk's mic warm-up) with a
+        // generic "Operation Stopped" failure. The result is only ever used for still-frame
+        // extraction, never played back, so passthrough's lack of re-encoding costs nothing.
+        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
             throw ConcatenateError.exportSessionCreationFailed
         }
         exportSession.outputFileType = .mov

@@ -1,5 +1,26 @@
 from app.engine.goal_cues import directional_spoken_cue
 from app.engine.rules import RULES_BY_ID
+from app.models import Frame, Keypoint
+
+# right_elbow well above the left_shoulder/right_shoulder line -> "too high".
+ELBOW_TOO_HIGH_FRAME = Frame(
+    timestamp=0.0,
+    keypoints={
+        "left_shoulder": Keypoint(x=0.3, y=0.5, confidence=0.9),
+        "right_shoulder": Keypoint(x=0.5, y=0.5, confidence=0.9),
+        "right_elbow": Keypoint(x=0.5, y=0.2, confidence=0.9),
+    },
+)
+
+# right_elbow well below the left_shoulder/right_shoulder line -> "too low".
+ELBOW_TOO_LOW_FRAME = Frame(
+    timestamp=0.0,
+    keypoints={
+        "left_shoulder": Keypoint(x=0.3, y=0.5, confidence=0.9),
+        "right_shoulder": Keypoint(x=0.5, y=0.5, confidence=0.9),
+        "right_elbow": Keypoint(x=0.5, y=0.8, confidence=0.9),
+    },
+)
 
 
 def test_gte_rule_below_threshold_returns_low_phrase():
@@ -28,18 +49,25 @@ def test_range_rule_above_max_returns_high_phrase():
     )
 
 
-def test_trophy_elbow_shoulder_line_below_min_returns_raise_phrase():
+def test_trophy_elbow_shoulder_line_too_high_returns_lower_phrase():
+    # value alone (the unsigned vertex angle) can't tell direction — direction comes from the
+    # frame's joint positions instead (see _trophy_elbow_direction).
     rule = RULES_BY_ID["trophy_hitting_elbow_shoulder_line"]  # range 155..180
-    assert directional_spoken_cue(rule, 130.0) == (
+    assert directional_spoken_cue(rule, 130.0, ELBOW_TOO_HIGH_FRAME) == (
+        "Lower your hitting elbow to line up with your shoulders."
+    )
+
+
+def test_trophy_elbow_shoulder_line_too_low_returns_raise_phrase():
+    rule = RULES_BY_ID["trophy_hitting_elbow_shoulder_line"]  # range 155..180
+    assert directional_spoken_cue(rule, 130.0, ELBOW_TOO_LOW_FRAME) == (
         "Raise your hitting elbow to line up with your shoulders."
     )
 
 
-def test_trophy_elbow_shoulder_line_above_max_returns_lower_phrase():
+def test_trophy_elbow_shoulder_line_no_frame_falls_back_to_message():
     rule = RULES_BY_ID["trophy_hitting_elbow_shoulder_line"]  # range 155..180
-    assert directional_spoken_cue(rule, 190.0) == (
-        "Lower your hitting elbow to line up with your shoulders."
-    )
+    assert directional_spoken_cue(rule, 130.0) == rule.message
 
 
 def test_contact_shoulders_stacked_below_min_returns_raise_phrase():

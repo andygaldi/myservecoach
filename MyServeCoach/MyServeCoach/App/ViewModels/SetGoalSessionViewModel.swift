@@ -113,7 +113,11 @@ final class SetGoalSessionViewModel {
             isFinalizing = false
             cameraViewModel.recordingState = .idle
         }
-        videoURL = try? await concatenator.concatenate(chunkURLs: chunkURLs)
+        do {
+            videoURL = try await concatenator.concatenate(chunkURLs: chunkURLs)
+        } catch {
+            print("[SetGoalSession] concatenation failed: \(error)")
+        }
         guard let videoURL else { return }
 
         let timestamps = attempts.compactMap(\.phaseFrame?.frame.timestamp)

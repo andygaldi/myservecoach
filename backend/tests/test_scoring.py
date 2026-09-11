@@ -63,7 +63,12 @@ def test_goal_result_failed_when_rule_fires():
     assert result.goal_result.passed is False
     firing_cue = next(c for c in result.cues if c.rule_id == "trophy_hitting_elbow_shoulder_line")
     rule = RULES_BY_ID["trophy_hitting_elbow_shoulder_line"]
-    assert result.goal_result.spoken_cue == directional_spoken_cue(rule, firing_cue.measured_value)
+    # BAD_ELBOW_FRAME's right_elbow (y=0.5) sits well above its shoulder line (y~0.65-0.7) -> "too
+    # high" -> the "Lower" phrase, not the frame-blind generic message.
+    assert result.goal_result.spoken_cue == "Lower your hitting elbow to line up with your shoulders."
+    assert result.goal_result.spoken_cue == directional_spoken_cue(
+        rule, firing_cue.measured_value, BAD_ELBOW_FRAME
+    )
     assert result.goal_result.spoken_cue != firing_cue.message
 
 

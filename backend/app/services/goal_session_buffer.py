@@ -2,13 +2,6 @@ from dataclasses import dataclass, field
 
 from app.models import Detection, Frame
 
-# Matches CameraService's Pro 2D live-recording lock (720x1280@30fps) — see
-# backend/app/routers/segment.py's DEFAULT_STRIDE and CameraService.swift's _configure. Used
-# only to convert each chunk's locally-zeroed sample timestamps into the buffer's running
-# clock; a session recorded at a different fps would drift, matching the same fixed-fps
-# assumption Pro 2D already relies on elsewhere.
-_CHUNK_FPS = 30.0
-
 
 @dataclass
 class _SessionBuffer:
@@ -23,19 +16,23 @@ _SESSIONS: dict[str, _SessionBuffer] = {}
 
 def append_chunk(
     session_id: str,
-    stride: int,
+    chunk_duration: float,
     sampled: list[tuple[float, Frame, list[Detection]]],
 ) -> _SessionBuffer:
     """Appends one chunk's (local_timestamp, frame, detections) triples to session_id's buffer,
     offsetting each frame's timestamp by the buffer's running clock so chunk boundaries don't
     reset time to 0. Frame objects are rebuilt with the offset timestamp (Frame is immutable
     enough that reconstruction, not mutation, is simplest).
+
+    `chunk_duration` must be the chunk video's real duration (video_sampler.video_duration_seconds),
+    not derived from stride/sampled-frame-count — an approximation there drifts cumulatively
+    across chunks, since it ignores each chunk's true fps and any unsampled tail frames.
     """
     buffer = _SESSIONS.setdefault(session_id, _SessionBuffer())
     for local_ts, frame, dets in sampled:
         buffer.frames.append(Frame(timestamp=buffer.next_offset + local_ts, keypoints=frame.keypoints))
         buffer.detections.append(dets)
-    buffer.next_offset += len(sampled) * (stride / _CHUNK_FPS)
+    buffer.next_offset += chunk_duration
     return buffer
 
 
